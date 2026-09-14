@@ -216,7 +216,7 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 4. [x] Multi-tech guardrails: confirm-before-destructive-action, permission scoping by role
 5. [x] Backup/restore for Postgres in the Docker Compose setup
 6. [x] Load testing polling jobs against tenant count targets (e.g., 50, 200 tenants)
-7. [x] Documentation: setup guide, Azure AD app registration walkthrough, migration runner, and PSA adapter configuration; GDAP walkthrough remains an external integration guide
+7. [x] Documentation: setup guide, Azure AD app registration walkthrough (one app credential set for many tenants), migration runner, and PSA adapter configuration; GDAP operations remain an external integration guide
 
 ---
 
