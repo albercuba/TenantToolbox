@@ -10,7 +10,7 @@ type AppRisk = { id: string; display_name: string; publisher?: string; permissio
 
 function Icon({ children }: { children: ReactNode }) { return <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">{children}</svg>; }
 function auth(token: string) { return { Authorization: `Bearer ${token}` }; }
-async function json<T>(url: string, token: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { ...init, headers: { ...auth(token), ...(init?.headers || {}) } }); if (!response.ok) throw new Error(await response.text() || "Request failed"); return response.json(); }
+async function json<T>(url: string, token: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { ...init, headers: { ...auth(token), ...(init?.headers || {}) } }); if (response.status === 401) { localStorage.removeItem("tenanttoolbox_token"); window.location.reload(); throw new Error("Your session expired. Please sign in again."); } if (!response.ok) throw new Error(await response.text() || "Request failed"); return response.json(); }
 
 function App() {
   const [activeView, setActiveView] = useState("dashboard");
