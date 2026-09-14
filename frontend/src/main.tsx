@@ -21,7 +21,7 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
 
-  useEffect(() => { fetch("/api/setup/status").then((response) => response.json()).then((result: { setup_required: boolean }) => setSetupRequired(result.setup_required)).catch(() => setSetupRequired(false)); }, []);
+  useEffect(() => { let cancelled = false; const checkSetup = async () => { try { const response = await fetch("/api/setup/status", { cache: "no-store" }); if (!response.ok) throw new Error("Setup status unavailable"); const result: { setup_required: boolean } = await response.json(); if (!cancelled) setSetupRequired(result.setup_required); } catch { if (!cancelled) window.setTimeout(checkSetup, 1000); } }; void checkSetup(); return () => { cancelled = true; }; }, []);
   useEffect(() => { fetch("/api/health").then((response) => response.ok ? setApiStatus("API healthy") : Promise.reject()).catch(() => setApiStatus("API unavailable")); }, []);
   useEffect(() => {
     if (!token) return;
