@@ -39,8 +39,9 @@
 
   --fp-font: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
 
-  --sidebar-w: 240px;
-  --navbar-h: 50px;
+  --sidebar-w: 216px;
+  --navbar-h: 52px;
+  --shell-topbar: #28213f;
 }
 
 *{ box-sizing:border-box; }
@@ -62,8 +63,8 @@ ul{ list-style:none; margin:0; padding:0; }
 /* ---------------------------------------------------------------- */
 .navbar{
   position:fixed; top:0; left:0; right:0; height:var(--navbar-h);
-  background:var(--fp-surface);
-  border-bottom:1px solid var(--fp-border-soft);
+  background:var(--shell-topbar);
+  border-bottom:1px solid rgba(255,255,255,.08);
   display:flex; align-items:center;
   padding:0 16px;
   gap:16px;
@@ -75,12 +76,16 @@ ul{ list-style:none; margin:0; padding:0; }
   border-radius:var(--fp-radius); color:var(--fp-text-muted);
   align-items:center; justify-content:center; cursor:pointer; flex:none;
 }
-.navbar-menu-btn:hover{ background:var(--fp-grey-tint); color:var(--fp-text); }
+.navbar-menu-btn{ color:rgba(255,255,255,.78); }
+.navbar-menu-btn:hover{ background:rgba(255,255,255,.1); color:#fff; }
 
 .navbar-brand{
   display:flex; align-items:center; gap:8px;
+  position:absolute; left:0; top:0; height:var(--navbar-h);
+  padding:0 18px;
   font-weight:700; font-size:15px; color:var(--fp-text);
-  width:calc(var(--sidebar-w) - 16px);
+  background:var(--fp-surface);
+  width:var(--sidebar-w);
   flex:none;
 }
 .navbar-brand .logo-mark{
@@ -91,36 +96,38 @@ ul{ list-style:none; margin:0; padding:0; }
 }
 .navbar-search{
   flex:1; max-width:520px;
+  margin-left:calc(var(--sidebar-w) - 16px);
   position:relative;
 }
 .navbar-search input{
   width:100%; height:32px;
-  border:1px solid var(--fp-border);
+  border:1px solid rgba(255,255,255,.14);
   border-radius:var(--fp-radius);
-  background:var(--fp-grey-tint);
+  background:rgba(255,255,255,.1);
   padding:0 12px 0 32px;
   font-size:13px; color:var(--fp-text);
   outline:none;
 }
-.navbar-search input:focus{ border-color:var(--fp-primary); background:#fff; }
+.navbar-search input:focus{ border-color:var(--fp-primary); background:#fff; color:var(--fp-text); }
 .navbar-search svg{
   position:absolute; left:9px; top:50%; transform:translateY(-50%);
   color:var(--fp-text-faint);
 }
-.navbar-actions{ margin-left:auto; display:flex; align-items:center; gap:4px; }
+.navbar-actions{ margin-left:auto; display:flex; align-items:center; gap:4px; color:#fff; }
 .navbar-icon-btn{
   width:32px; height:32px; border:none; background:transparent;
-  border-radius:var(--fp-radius); color:var(--fp-text-muted);
+  border-radius:var(--fp-radius); color:rgba(255,255,255,.78);
   display:flex; align-items:center; justify-content:center; cursor:pointer;
   position:relative;
 }
-.navbar-icon-btn:hover{ background:var(--fp-grey-tint); color:var(--fp-text); }
+.navbar-icon-btn:hover{ background:rgba(255,255,255,.1); color:#fff; }
 .navbar-icon-btn .dot{
   position:absolute; top:6px; right:6px; width:6px; height:6px;
   border-radius:50%; background:var(--fp-red);
 }
 .navbar-avatar{
   width:30px; height:30px; border-radius:50%;
+  border:2px solid rgba(255,255,255,.55);
   background:#7c5cff; color:#fff; font-weight:600; font-size:12px;
   display:flex; align-items:center; justify-content:center; cursor:pointer;
   margin-left:4px;
@@ -135,16 +142,18 @@ ul{ list-style:none; margin:0; padding:0; }
   background:var(--fp-surface);
   border-right:1px solid var(--fp-border-soft);
   overflow-y:auto;
-  padding:14px 8px 24px;
+  padding:18px 8px 24px;
+  box-shadow:2px 0 8px rgba(31,39,46,.03);
 }
 .sidebar-section-label{
-  font-size:11px; font-weight:600; color:var(--fp-text-faint);
-  text-transform:uppercase; letter-spacing:.03em;
-  padding:6px 10px; margin-top:10px;
+  font-size:10px; font-weight:600; color:#a2adba;
+  text-transform:uppercase; letter-spacing:.08em;
+  padding:10px 10px 6px; margin-top:12px;
+  border-top:1px solid transparent;
 }
 .sidebar-item{
   display:flex; align-items:center; gap:10px;
-  width:100%; min-height:32px; padding:7px 10px;
+  width:100%; min-height:34px; padding:7px 10px;
   border:0; border-radius:var(--fp-radius);
   background:transparent; color:var(--fp-text-muted);
   font:inherit; font-size:13px; font-weight:500;
@@ -153,7 +162,8 @@ ul{ list-style:none; margin:0; padding:0; }
 .sidebar-item svg{ flex:none; color:var(--fp-text-faint); }
 .sidebar-item:hover{ background:var(--fp-grey-tint); color:var(--fp-text); }
 .sidebar-item.active{
-  background:var(--fp-primary-tint); color:var(--fp-primary-dark);
+  background:#edf5ff; color:#2877b7;
+  box-shadow:inset 3px 0 0 var(--fp-primary);
 }
 .sidebar-item.active svg{ color:var(--fp-primary); }
 .sidebar-item .count{
@@ -195,8 +205,8 @@ ul{ list-style:none; margin:0; padding:0; }
 .main{
   margin-left:var(--sidebar-w);
   margin-top:var(--navbar-h);
-  padding:24px 28px 60px;
-  max-width:1180px;
+  padding:16px 20px 60px;
+  max-width:none;
 }
 .view{ display:none; }
 .view.active{ display:block; }
@@ -296,9 +306,10 @@ ul{ list-style:none; margin:0; padding:0; }
 .filter-chip.active{ border-style:solid; border-color:var(--fp-primary); color:var(--fp-primary-dark); background:var(--fp-primary-tint); }
 .filter-spacer{ flex:1; }
 .sort-select{
-  height:30px; border:1px solid var(--fp-border); border-radius:var(--fp-radius);
-  padding:0 8px; font-size:12px; color:var(--fp-text-muted); background:#fff;
+  height:30px; border:1px solid rgba(255,255,255,.18); border-radius:var(--fp-radius);
+  padding:0 8px; font-size:12px; color:rgba(255,255,255,.88); background:rgba(255,255,255,.08);
 }
+.sort-select option{ color:var(--fp-text); background:#fff; }
 
 .list-table-wrap{
   background:var(--fp-surface); border:1px solid var(--fp-border-soft);
@@ -404,8 +415,8 @@ table.list-table{ width:100%; border-collapse:collapse; }
   .two-col, .form-layout{ grid-template-columns:1fr; }
 
   .navbar-menu-btn{ display:flex; }
-  .navbar-brand{ width:auto; }
-  .navbar-search{ display:none; }
+  .navbar-brand{ width:auto; position:static; height:auto; padding:0; background:transparent; color:#fff; }
+  .navbar-search{ display:none; margin-left:0; }
 
   .sidebar{
     transform:translateX(-100%);
