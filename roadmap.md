@@ -98,7 +98,12 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 
 **Exit criteria:** Can connect one real M365 tenant via OAuth and call Graph API `/me` or `/organization` successfully from the backend, store the token securely, and see it listed in the frontend.
 
+**Implementation note:** The OAuth and Graph code path is implemented, but this exit criterion still requires a live Entra configuration and real-tenant verification.
+
 ### Phase 1 — Multi-tenant core + basic Graph read access
+
+**Progress:** The authenticated tenant list API and frontend tenant management view are complete. The remaining Phase 1 items below are intentionally not marked complete until they support live tenant data and switching behavior.
+
 1. GDAP / Partner Center bulk-import flow (or CSV import of tenant IDs as an interim step)
 2. Tenant switcher UI (no re-auth needed once connected)
 3. Background worker: scheduled Graph polling per tenant (users, licenses, sign-in logs, security defaults/CA policies) into normalized DB tables
