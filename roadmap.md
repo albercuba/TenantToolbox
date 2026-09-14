@@ -43,7 +43,7 @@ Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for se
 
 ### 3.2 Secure Autopilot (security & compliance) — the core module
 - [x] Built-in security baseline templates with JSON control definitions
-- [ ] Security baseline template custom builder
+- [x] Security baseline template custom builder
 - [ ] 1-click baseline deployment to a tenant (Conditional Access, MFA enforcement, session policies, Defender policies)
 - [ ] Policy drift detection (poll/compare current tenant config vs. assigned baseline)
 - [ ] 1-click drift rollback / re-apply baseline
@@ -119,7 +119,7 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 ### Phase 2 — Secure Autopilot v1 (baselines + drift)
 1. [x] Baseline template schema (JSON describing target Conditional Access / MFA / Defender settings)
 2. [x] Ship 2-3 out-of-box templates (e.g., "CIS Level 1", "Basic MFA Enforcement")
-3. Custom template builder UI
+3. [x] Custom template builder UI
 4. "Deploy baseline to tenant" action — writes policies via Graph API
 5. Drift detection job: compare live tenant policy state to assigned baseline on schedule, flag deltas
 6. Drift dashboard + 1-click rollback (re-apply baseline)

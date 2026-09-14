@@ -64,7 +64,7 @@ function App() {
         <button className={`sidebar-item ${activeView === "dashboard" ? "active" : ""}`} onClick={() => navigate("dashboard")}><Icon><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></Icon>Dashboard</button>
         <button className={`sidebar-item ${activeView === "tenants" ? "active" : ""}`} onClick={() => navigate("tenants")}><Icon><path d="M3 21h18M5 21V5l7-3 7 3v16M9 8h1M14 8h1M9 12h1M14 12h1" /></Icon>Client tenants<span className="count">{managedTenants.length || tenants.length}</span></button>
         <div className="sidebar-section-label">Security</div>
-        <button className="sidebar-item"><Icon><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" /><path d="m9 12 2 2 4-4" /></Icon>Secure Autopilot</button>
+        <button className={`sidebar-item ${activeView === "baseline" ? "active" : ""}`} onClick={() => navigate("baseline")}><Icon><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" /><path d="m9 12 2 2 4-4" /></Icon>Secure Autopilot</button>
         <button className="sidebar-item"><Icon><path d="M4 4h16v16H4z" /><path d="M8 12h8M8 8h5M8 16h6" /></Icon>Alerts</button>
         <button className={`sidebar-item ${activeView === "audit" ? "active" : ""}`} onClick={() => navigate("audit")}><Icon><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82" /></Icon>Audit log</button>
         <div className="sidebar-section-label">Management</div>
@@ -74,7 +74,7 @@ function App() {
       </aside>
 
       <main className="main">
-        {activeView === "dashboard" ? <Dashboard apiStatus={apiStatus} onTenants={() => navigate("tenants")} activeTenant={managedTenants.find((tenant) => tenant.domain === selectedTenantId)?.name} /> : activeView === "tenants" ? <TenantList token={token} /> : activeView === "audit" ? <AuditView token={token} /> : <TenantOverview token={token} tenant={managedTenants.find((item) => item.domain === selectedTenantId)} />}
+        {activeView === "dashboard" ? <Dashboard apiStatus={apiStatus} onTenants={() => navigate("tenants")} activeTenant={managedTenants.find((tenant) => tenant.domain === selectedTenantId)?.name} /> : activeView === "tenants" ? <TenantList token={token} /> : activeView === "audit" ? <AuditView token={token} /> : activeView === "baseline" ? <BaselineView token={token} /> : <TenantOverview token={token} tenant={managedTenants.find((item) => item.domain === selectedTenantId)} />}
       </main>
     </>
   );
@@ -136,6 +136,17 @@ function AuditView({ token }: { token: string }) {
   const [entries, setEntries] = useState<Array<{ id: string; action: string; created_at: string; tenant_id?: string }>>([]);
   useEffect(() => { fetch("/api/audit-log", { headers: { Authorization: `Bearer ${token}` } }).then((response) => response.json()).then(setEntries); }, [token]);
   return <div className="view active"><div className="page-head"><div><h1 className="page-title">Audit log</h1><div className="page-subtitle">Recent actions taken by MSP staff</div></div></div><div className="list-table-wrap"><table className="list-table"><thead><tr><th>Action</th><th>Tenant</th><th>Time</th></tr></thead><tbody>{entries.map((entry) => <tr key={entry.id}><td className="cell-primary">{entry.action}</td><td>{entry.tenant_id || "—"}</td><td>{new Date(entry.created_at).toLocaleString()}</td></tr>)}</tbody></table></div></div>;
+}
+
+function BaselineView({ token }: { token: string }) {
+  const [baselines, setBaselines] = useState<Array<{ id: string; name: string; description: string; definition: { controls?: unknown[] }; is_builtin: boolean }>>([]);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [definition, setDefinition] = useState('{"controls":[{"type":"conditional_access","name":"require_mfa","target":"all_users","state":"enabled"}]}');
+  const load = () => fetch("/api/baselines", { headers: { Authorization: `Bearer ${token}` } }).then((response) => response.json()).then(setBaselines);
+  useEffect(() => { load(); }, []);
+  const create = async (event: FormEvent) => { event.preventDefault(); let parsed: object; try { parsed = JSON.parse(definition); } catch { return; } const response = await fetch("/api/baselines", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ name, description, definition: parsed }) }); if (response.ok) { setName(""); setDescription(""); await load(); } };
+  return <div className="view active"><div className="page-head"><div><h1 className="page-title">Secure Autopilot</h1><div className="page-subtitle">Baseline templates for Microsoft 365 security controls</div></div></div><div className="two-col"><div className="panel"><div className="panel-head"><h3>Available baselines</h3><span className="sub">{baselines.length} templates</span></div>{baselines.map((item) => <div className="mini-row" key={item.id}><div><div className="name">{item.name}</div><div className="sub">{item.description}</div></div><span className="badge ok"><span className="dot" />{item.is_builtin ? "Built-in" : "Custom"}</span></div>)}</div><div className="panel"><div className="panel-head"><h3>Create custom baseline</h3></div><form onSubmit={create}><label className="form-field"><span>Name</span><input required value={name} onChange={(event) => setName(event.target.value)} /></label><label className="form-field"><span>Description</span><input required value={description} onChange={(event) => setDescription(event.target.value)} /></label><label className="form-field"><span>JSON controls</span><textarea required rows={8} value={definition} onChange={(event) => setDefinition(event.target.value)} /></label><button className="btn btn-primary" type="submit">Save baseline</button></form></div></div></div>;
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

@@ -66,6 +66,12 @@ class TenantResponse(BaseModel):
     last_error: str | None
 
 
+class BaselineRequest(BaseModel):
+    name: str
+    description: str
+    definition: dict
+
+
 
 def write_audit(db: Session, user: StaffUser, action: str, tenant_id: str | None = None, payload: dict | None = None) -> None:
     db.add(AuditLog(organization_id=user.organization_id, actor_id=user.id, client_tenant_id=tenant_id, action=action, target_type="client_tenant" if tenant_id else None, target_id=tenant_id, payload=payload or {}))
@@ -201,6 +207,49 @@ def import_tenants(file: UploadFile = File(...), user: StaffUser = Depends(requi
 def list_tenants(user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[TenantResponse]:
     tenants = db.scalars(select(ClientTenant).where(ClientTenant.organization_id == user.organization_id).order_by(ClientTenant.display_name)).all()
     return [tenant_to_response(tenant) for tenant in tenants]
+
+
+@app.post("/api/baselines", status_code=status.HTTP_201_CREATED)
+def create_baseline(payload: BaselineRequest, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict:
+    name = payload.name.strip()
+    if not name or not payload.definition.get("controls"):
+        raise HTTPException(status_code=400, detail="Name and at least one control are required")
+    if db.scalar(select(BaselineTemplate).where(BaselineTemplate.name == name)):
+        raise HTTPException(status_code=409, detail="Baseline name already exists")
+    baseline = BaselineTemplate(name=name, description=payload.description.strip(), definition=payload.definition, is_builtin=False)
+    db.add(baseline)
+    db.flush()
+    write_audit(db, user, "baseline.create", payload={"baseline_id": baseline.id})
+    db.commit()
+    db.refresh(baseline)
+    return {"id": baseline.id, "name": baseline.name, "description": baseline.description, "definition": baseline.definition, "is_builtin": baseline.is_builtin}
+
+
+@app.put("/api/baselines/{baseline_id}")
+def update_baseline(baseline_id: str, payload: BaselineRequest, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict:
+    baseline = db.get(BaselineTemplate, baseline_id)
+    if not baseline or baseline.is_builtin:
+        raise HTTPException(status_code=404, detail="Editable custom baseline not found")
+    if not payload.name.strip() or not payload.definition.get("controls"):
+        raise HTTPException(status_code=400, detail="Name and at least one control are required")
+    baseline.name = payload.name.strip()
+    baseline.description = payload.description.strip()
+    baseline.definition = payload.definition
+    write_audit(db, user, "baseline.update", payload={"baseline_id": baseline.id})
+    db.commit()
+    return {"id": baseline.id, "name": baseline.name, "description": baseline.description, "definition": baseline.definition, "is_builtin": baseline.is_builtin}
+
+
+@app.delete("/api/baselines/{baseline_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_baseline(baseline_id: str, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> None:
+    baseline = db.get(BaselineTemplate, baseline_id)
+    if not baseline or baseline.is_builtin:
+        raise HTTPException(status_code=404, detail="Editable custom baseline not found")
+    if db.scalar(select(TenantBaselineAssignment).where(TenantBaselineAssignment.baseline_template_id == baseline_id)):
+        raise HTTPException(status_code=409, detail="Cannot delete an assigned baseline")
+    write_audit(db, user, "baseline.delete", payload={"baseline_id": baseline.id})
+    db.delete(baseline)
+    db.commit()
 
 
 @app.get("/api/baselines")
