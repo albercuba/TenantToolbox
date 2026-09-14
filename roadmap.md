@@ -38,7 +38,7 @@ Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for se
 - [x] PSA integration (generic webhook plus ConnectWise, Autotask, and Halo payload adapters) for ticket creation from alerts
 - [x] Local MSP staff authentication with owner/tech roles and owner-only tenant disconnect guardrail
 - [x] First-time setup startup check reports backend availability/configuration errors with retry guidance
-- [x] Settings → Users and Groups for local staff accounts and the built-in Administrator/Technician groups
+- [x] Settings sidebar section with Users and Groups submenus for local staff accounts and the built-in Administrator/Technician groups
 - [x] Management → Clients with client-scoped tenant connections, guarded client deletion, and owner-only tenant disconnect
 - [x] Role-based access for MSP staff (owner, L1/L2/L3 tech) with explicit operation/manage/admin guardrails
 - [x] Public report API with expiring token links for downstream tools
