@@ -33,9 +33,9 @@ def create_access_token(user: StaffUser) -> str:
     return jwt.encode({"sub": user.id, "role": user.role, "exp": expires}, settings.jwt_secret, algorithm="HS256")
 
 
-def create_oauth_state(user_id: str, tenant_id: str | None = None) -> str:
+def create_oauth_state(user_id: str, tenant_id: str | None = None, client_id: str | None = None) -> str:
     expires = datetime.now(timezone.utc) + timedelta(minutes=10)
-    return jwt.encode({"sub": user_id, "tenant_id": tenant_id, "purpose": "oauth", "exp": expires}, settings.jwt_secret, algorithm="HS256")
+    return jwt.encode({"sub": user_id, "tenant_id": tenant_id, "client_id": client_id, "purpose": "oauth", "exp": expires}, settings.jwt_secret, algorithm="HS256")
 
 
 def verify_oauth_state(state: str) -> dict:

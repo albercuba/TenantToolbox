@@ -18,9 +18,9 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import Base, engine, get_db
-from app.models import (Alert, AlertRule, AuditLog, BaselineTemplate, ClientTenant, ComplianceControl, DiscoveredApp, DriftEvent,
-                        Organization, ProspectAssessment, Report, ReportSchedule, StaffUser, TenantBaselineAssignment, TenantCredential,
-                        TenantDeviceSnapshot, TenantLicenseSnapshot, TenantSecureScoreSnapshot,
+from app.models import (Alert, AlertRule, AuditLog, BaselineTemplate, Client, ClientTenant, ComplianceControl, DiscoveredApp, DriftEvent,
+                        Organization, ProspectAssessment, Report, ReportSchedule, StaffGroup, StaffGroupMembership, StaffUser,
+                        TenantBaselineAssignment, TenantCredential, TenantDeviceSnapshot, TenantLicenseSnapshot, TenantSecureScoreSnapshot,
                         TenantUserSnapshot)
 from app.alerting import ingest_risky_signins, ingest_tenant_alerts
 from app.graph import GraphAPIError, GraphClient
@@ -91,9 +91,26 @@ class SignupRequest(BaseModel):
     organization_name: str
 
 
+class ClientRequest(BaseModel):
+    name: str
+    description: str = ""
+
+
+class StaffUserRequest(BaseModel):
+    email: EmailStr
+    password: str | None = None
+    role: str = "technician"
+
+
+class StaffGroupRequest(BaseModel):
+    name: str
+    description: str = ""
+
+
 class TenantResponse(BaseModel):
     id: str
     tenant_id: str
+    client_id: str | None = None
     display_name: str
     connection_status: str
     last_connected_at: datetime | None
@@ -415,6 +432,10 @@ def create_owner(payload: SignupRequest, db: Session) -> dict[str, str]:
         raise HTTPException(status_code=409, detail="Initial setup has already been completed")
     organization = Organization(name=payload.organization_name.strip())
     user = StaffUser(email=payload.email.lower(), password_hash=hash_password(payload.password), role="owner", organization=organization)
+    organization.staff_groups = [
+        StaffGroup(name="Administrator", description="Staff with administrative operational permissions."),
+        StaffGroup(name="Technician", description="Staff with day-to-day tenant operational permissions."),
+    ]
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -457,6 +478,212 @@ def permissions(user: StaffUser = Depends(get_current_user)) -> dict[str, bool]:
     return role_permissions(user)
 
 
+def client_to_response(client: Client, db: Session | None = None) -> dict:
+    response = {"id": client.id, "name": client.name, "description": client.description, "created_at": client.created_at}
+    if db is not None:
+        response["tenants"] = [
+            {
+                "id": tenant.id,
+                "name": tenant.display_name,
+                "domain": tenant.tenant_id,
+                "status": "Connected" if tenant.connection_status == "connected" else "Needs attention",
+                "connection_status": tenant.connection_status,
+                "last_connected_at": tenant.last_connected_at,
+                "last_error": tenant.last_error,
+            }
+            for tenant in db.scalars(
+                select(ClientTenant)
+                .where(ClientTenant.client_id == client.id)
+                .order_by(ClientTenant.display_name)
+            ).all()
+        ]
+    return response
+
+
+@app.post("/api/clients", status_code=status.HTTP_201_CREATED)
+def create_client(payload: ClientRequest, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict:
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Client name is required")
+    if db.scalar(select(Client).where(Client.organization_id == user.organization_id, Client.name == name)):
+        raise HTTPException(status_code=409, detail="Client name already exists")
+    client = Client(organization_id=user.organization_id, name=name, description=payload.description.strip())
+    db.add(client)
+    db.flush()
+    write_audit(db, user, "client.create", payload={"client_id": client.id})
+    db.commit()
+    return client_to_response(client)
+
+
+@app.get("/api/clients")
+def list_clients(user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
+    return [client_to_response(item, db) for item in db.scalars(select(Client).where(Client.organization_id == user.organization_id).order_by(Client.name)).all()]
+
+
+@app.put("/api/clients/{client_id}")
+def update_client(client_id: str, payload: ClientRequest, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict:
+    client = db.scalar(select(Client).where(Client.id == client_id, Client.organization_id == user.organization_id))
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Client name is required")
+    duplicate = db.scalar(select(Client).where(Client.organization_id == user.organization_id, Client.name == name, Client.id != client.id))
+    if duplicate:
+        raise HTTPException(status_code=409, detail="Client name already exists")
+    client.name = name
+    client.description = payload.description.strip()
+    write_audit(db, user, "client.update", payload={"client_id": client.id})
+    db.commit()
+    return client_to_response(client)
+
+
+@app.delete("/api/clients/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_client(client_id: str, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> None:
+    client = db.scalar(select(Client).where(Client.id == client_id, Client.organization_id == user.organization_id))
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if db.scalar(select(ClientTenant).where(ClientTenant.client_id == client.id)):
+        raise HTTPException(status_code=409, detail="Cannot delete a client with assigned tenants")
+    write_audit(db, user, "client.delete", payload={"client_id": client.id})
+    db.delete(client)
+    db.commit()
+
+
+def staff_to_response(staff: StaffUser, db: Session) -> dict:
+    memberships = db.scalars(select(StaffGroup).join(StaffGroupMembership, StaffGroupMembership.staff_group_id == StaffGroup.id).where(StaffGroupMembership.staff_user_id == staff.id)).all()
+    return {"id": staff.id, "email": staff.email, "role": staff.role, "organization_id": staff.organization_id, "groups": [{"id": group.id, "name": group.name} for group in memberships]}
+
+
+@app.get("/api/staff/users")
+def list_staff_users(user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> list[dict]:
+    return [staff_to_response(item, db) for item in db.scalars(select(StaffUser).where(StaffUser.organization_id == user.organization_id).order_by(StaffUser.email)).all()]
+
+
+@app.post("/api/staff/users", status_code=status.HTTP_201_CREATED)
+def create_staff_user(payload: StaffUserRequest, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict:
+    role = payload.role.lower()
+    if role not in {"owner", "administrator", "technician", "l1", "l2", "l3"}:
+        raise HTTPException(status_code=400, detail="Invalid staff role")
+    if not payload.password or len(payload.password) < 12:
+        raise HTTPException(status_code=400, detail="Password must be at least 12 characters")
+    email = str(payload.email).lower()
+    if db.scalar(select(StaffUser).where(StaffUser.email == email)):
+        raise HTTPException(status_code=409, detail="Email is already in use")
+    staff = StaffUser(organization_id=user.organization_id, email=email, password_hash=hash_password(payload.password), role=role)
+    db.add(staff)
+    db.flush()
+    write_audit(db, user, "staff.create", payload={"staff_id": staff.id, "role": role})
+    db.commit()
+    return staff_to_response(staff, db)
+
+
+@app.put("/api/staff/users/{staff_id}")
+def update_staff_user(staff_id: str, payload: StaffUserRequest, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict:
+    staff = db.scalar(select(StaffUser).where(StaffUser.id == staff_id, StaffUser.organization_id == user.organization_id))
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff user not found")
+    role = payload.role.lower()
+    if role not in {"owner", "administrator", "technician", "l1", "l2", "l3"}:
+        raise HTTPException(status_code=400, detail="Invalid staff role")
+    if staff.role == "owner" and role != "owner" and db.scalar(select(StaffUser).where(StaffUser.organization_id == user.organization_id, StaffUser.role == "owner", StaffUser.id != staff.id)) is None:
+        raise HTTPException(status_code=409, detail="Cannot remove the last owner")
+    email = str(payload.email).lower()
+    if db.scalar(select(StaffUser).where(StaffUser.email == email, StaffUser.id != staff.id)):
+        raise HTTPException(status_code=409, detail="Email is already in use")
+    staff.email = email
+    staff.role = role
+    if payload.password is not None:
+        if len(payload.password) < 12:
+            raise HTTPException(status_code=400, detail="Password must be at least 12 characters")
+        staff.password_hash = hash_password(payload.password)
+    write_audit(db, user, "staff.update", payload={"staff_id": staff.id, "role": role})
+    db.commit()
+    return staff_to_response(staff, db)
+
+
+@app.delete("/api/staff/users/{staff_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_staff_user(staff_id: str, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> None:
+    staff = db.scalar(select(StaffUser).where(StaffUser.id == staff_id, StaffUser.organization_id == user.organization_id))
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff user not found")
+    if staff.role == "owner" and db.scalar(select(StaffUser).where(StaffUser.organization_id == user.organization_id, StaffUser.role == "owner", StaffUser.id != staff.id)) is None:
+        raise HTTPException(status_code=409, detail="Cannot remove the last owner")
+    write_audit(db, user, "staff.delete", payload={"staff_id": staff.id})
+    db.delete(staff)
+    db.commit()
+
+
+@app.get("/api/groups")
+def list_staff_groups(user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
+    groups = db.scalars(select(StaffGroup).where(StaffGroup.organization_id == user.organization_id).order_by(StaffGroup.name)).all()
+    return [{"id": group.id, "name": group.name, "description": group.description} for group in groups]
+
+
+@app.post("/api/groups", status_code=status.HTTP_201_CREATED)
+def create_staff_group(payload: StaffGroupRequest, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict:
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Group name is required")
+    if db.scalar(select(StaffGroup).where(StaffGroup.organization_id == user.organization_id, StaffGroup.name == name)):
+        raise HTTPException(status_code=409, detail="Group name already exists")
+    group = StaffGroup(organization_id=user.organization_id, name=name, description=payload.description.strip())
+    db.add(group)
+    db.flush()
+    write_audit(db, user, "staff_group.create", payload={"group_id": group.id})
+    db.commit()
+    return {"id": group.id, "name": group.name, "description": group.description}
+
+
+@app.put("/api/groups/{group_id}")
+def update_staff_group(group_id: str, payload: StaffGroupRequest, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict:
+    group = db.scalar(select(StaffGroup).where(StaffGroup.id == group_id, StaffGroup.organization_id == user.organization_id))
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Group name is required")
+    if db.scalar(select(StaffGroup).where(StaffGroup.organization_id == user.organization_id, StaffGroup.name == name, StaffGroup.id != group.id)):
+        raise HTTPException(status_code=409, detail="Group name already exists")
+    group.name, group.description = name, payload.description.strip()
+    write_audit(db, user, "staff_group.update", payload={"group_id": group.id})
+    db.commit()
+    return {"id": group.id, "name": group.name, "description": group.description}
+
+
+@app.delete("/api/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_staff_group(group_id: str, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> None:
+    group = db.scalar(select(StaffGroup).where(StaffGroup.id == group_id, StaffGroup.organization_id == user.organization_id))
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    write_audit(db, user, "staff_group.delete", payload={"group_id": group.id})
+    db.delete(group)
+    db.commit()
+
+
+@app.put("/api/groups/{group_id}/members/{staff_id}", status_code=status.HTTP_204_NO_CONTENT)
+def assign_staff_group(group_id: str, staff_id: str, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> None:
+    group = db.scalar(select(StaffGroup).where(StaffGroup.id == group_id, StaffGroup.organization_id == user.organization_id))
+    staff = db.scalar(select(StaffUser).where(StaffUser.id == staff_id, StaffUser.organization_id == user.organization_id))
+    if not group or not staff:
+        raise HTTPException(status_code=404, detail="Group or staff user not found")
+    if not db.scalar(select(StaffGroupMembership).where(StaffGroupMembership.staff_group_id == group.id, StaffGroupMembership.staff_user_id == staff.id)):
+        db.add(StaffGroupMembership(staff_group_id=group.id, staff_user_id=staff.id, assigned_by=user.id))
+        write_audit(db, user, "staff_group.assign", payload={"group_id": group.id, "staff_id": staff.id})
+        db.commit()
+
+
+@app.delete("/api/groups/{group_id}/members/{staff_id}", status_code=status.HTTP_204_NO_CONTENT)
+def unassign_staff_group(group_id: str, staff_id: str, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> None:
+    group = db.scalar(select(StaffGroup).where(StaffGroup.id == group_id, StaffGroup.organization_id == user.organization_id))
+    membership = db.scalar(select(StaffGroupMembership).where(StaffGroupMembership.staff_group_id == group_id, StaffGroupMembership.staff_user_id == staff_id))
+    if not group or not membership:
+        raise HTTPException(status_code=404, detail="Group membership not found")
+    db.delete(membership)
+    write_audit(db, user, "staff_group.unassign", payload={"group_id": group.id, "staff_id": staff_id})
+    db.commit()
+
+
 @app.put("/api/organization/branding")
 def update_branding(payload: BrandingRequest, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict[str, str | None]:
     color = payload.color.strip()
@@ -472,10 +699,12 @@ def update_branding(payload: BrandingRequest, user: StaffUser = Depends(require_
 
 
 @app.get("/api/auth/microsoft/start")
-def microsoft_start(user: StaffUser = Depends(get_current_user)) -> dict[str, str]:
+def microsoft_start(client_id: str | None = Query(default=None), user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, str]:
+    if client_id and not db.scalar(select(Client).where(Client.id == client_id, Client.organization_id == user.organization_id)):
+        raise HTTPException(status_code=404, detail="Client not found")
     if not settings.entra_client_id:
         raise HTTPException(status_code=503, detail="ENTRA_CLIENT_ID is not configured")
-    state = create_oauth_state(user.id)
+    state = create_oauth_state(user.id, client_id=client_id)
     params = {"client_id": settings.entra_client_id, "response_type": "code", "redirect_uri": settings.entra_redirect_uri, "response_mode": "query", "scope": "openid profile offline_access User.Read Organization.Read.All", "state": state}
     return {"authorization_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" + urlencode(params)}
 
@@ -549,18 +778,22 @@ def reconnect_tenant(tenant_id: str, user: StaffUser = Depends(require_permissio
     tenant = ensure_tenant_access(tenant_id, user, db)
     if not settings.entra_client_id:
         raise HTTPException(status_code=503, detail="ENTRA_CLIENT_ID is not configured")
-    state = create_oauth_state(user.id, tenant.id)
+    state = create_oauth_state(user.id, tenant.id, tenant.client_id)
     params = {"client_id": settings.entra_client_id, "response_type": "code", "redirect_uri": settings.entra_redirect_uri, "response_mode": "query", "scope": "openid profile offline_access User.Read Organization.Read.All", "state": state}
     return {"authorization_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" + urlencode(params), "tenant_id": tenant.id}
 
 
 @app.get("/api/auth/microsoft/callback")
-def microsoft_callback(code: str | None = Query(default=None), state: str | None = Query(default=None), error: str | None = Query(default=None), db: Session = Depends(get_db)):
+def microsoft_callback(code: str | None = Query(default=None), state: str | None = Query(default=None), error: str | None = Query(default=None), client_id: str | None = Query(default=None), db: Session = Depends(get_db)):
     try:
         state_payload = verify_oauth_state(state or "")
     except Exception as exc:
         raise HTTPException(status_code=400, detail=error or "Invalid or expired OAuth state") from exc
     user_id = state_payload["sub"]
+    state_client_id = state_payload.get("client_id")
+    if client_id and state_client_id and client_id != state_client_id:
+        raise HTTPException(status_code=400, detail="OAuth client does not match the signed state")
+    requested_client_id = state_client_id or client_id
     reconnect = (user_id, state_payload.get("tenant_id")) if state_payload.get("tenant_id") else None
     if error or not code:
         raise HTTPException(status_code=400, detail=error or "Microsoft authorization was not completed")
@@ -594,12 +827,23 @@ def microsoft_callback(code: str | None = Query(default=None), state: str | None
     if not user:
         raise HTTPException(status_code=400, detail="OAuth owner no longer exists")
     tenant = db.scalar(select(ClientTenant).where(ClientTenant.tenant_id == tenant_id, ClientTenant.organization_id == user.organization_id))
+    if requested_client_id and not db.scalar(select(Client).where(Client.id == requested_client_id, Client.organization_id == user.organization_id)):
+        raise HTTPException(status_code=404, detail="Client not found")
     if reconnect and (not tenant or tenant.id != reconnect[1]):
         raise HTTPException(status_code=409, detail="OAuth tenant does not match the reconnect request")
     if not tenant:
-        tenant = ClientTenant(organization_id=user.organization_id, tenant_id=tenant_id, display_name=graph_org.get("displayName", tenant_id))
+        if not requested_client_id:
+            legacy_client = db.scalar(select(Client).where(Client.organization_id == user.organization_id, Client.name == "Unassigned"))
+            if not legacy_client:
+                legacy_client = Client(organization_id=user.organization_id, name="Unassigned", description="Legacy tenant connections")
+                db.add(legacy_client)
+                db.flush()
+            requested_client_id = legacy_client.id
+        tenant = ClientTenant(organization_id=user.organization_id, client_id=requested_client_id, tenant_id=tenant_id, display_name=graph_org.get("displayName", tenant_id))
         db.add(tenant)
         db.flush()
+    elif requested_client_id and not reconnect and tenant.client_id != requested_client_id:
+        raise HTTPException(status_code=409, detail="Tenant is already assigned to another client")
     tenant.connection_status = "connected"
     tenant.last_connected_at = datetime.now(timezone.utc)
     tenant.last_error = None
@@ -611,7 +855,7 @@ def microsoft_callback(code: str | None = Query(default=None), state: str | None
 
 
 def tenant_to_response(tenant: ClientTenant) -> TenantResponse:
-    return TenantResponse(id=tenant.id, tenant_id=tenant.tenant_id, display_name=tenant.display_name, connection_status=tenant.connection_status, last_connected_at=tenant.last_connected_at, last_error=tenant.last_error)
+    return TenantResponse(id=tenant.id, tenant_id=tenant.tenant_id, client_id=tenant.client_id, display_name=tenant.display_name, connection_status=tenant.connection_status, last_connected_at=tenant.last_connected_at, last_error=tenant.last_error)
 
 
 @app.post("/api/tenants/import", status_code=status.HTTP_201_CREATED)

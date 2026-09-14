@@ -13,6 +13,8 @@ ROLES = ("owner", "l1", "l2", "l3")
 # administrative access; L1/L2/L3 permissions are explicit rather than inferred.
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "owner": frozenset({"read", "operate", "manage", "admin"}),
+    "administrator": frozenset({"read", "operate", "manage"}),
+    "technician": frozenset({"read", "operate"}),
     "l1": frozenset({"read", "operate"}),
     "l2": frozenset({"read", "operate"}),
     "l3": frozenset({"read"}),

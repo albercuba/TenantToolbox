@@ -19,7 +19,42 @@ class Organization(Base):
     branding_color: Mapped[str] = mapped_column(String(20), default="#2490ef")
     branding_logo_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     staff_users: Mapped[list["StaffUser"]] = relationship(back_populates="organization")
+    clients: Mapped[list["Client"]] = relationship(back_populates="organization")
     tenants: Mapped[list["ClientTenant"]] = relationship(back_populates="organization")
+    staff_groups: Mapped[list["StaffGroup"]] = relationship(back_populates="organization")
+
+
+class Client(Base):
+    __tablename__ = "client"
+    __table_args__ = (UniqueConstraint("organization_id", "name"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    organization: Mapped[Organization] = relationship(back_populates="clients")
+    tenants: Mapped[list["ClientTenant"]] = relationship(back_populates="client")
+
+
+class StaffGroup(Base):
+    __tablename__ = "staff_group"
+    __table_args__ = (UniqueConstraint("organization_id", "name"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), index=True)
+    name: Mapped[str] = mapped_column(String(100))
+    description: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    organization: Mapped[Organization] = relationship(back_populates="staff_groups")
+
+
+class StaffGroupMembership(Base):
+    __tablename__ = "staff_group_membership"
+    __table_args__ = (UniqueConstraint("staff_group_id", "staff_user_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    staff_group_id: Mapped[str] = mapped_column(ForeignKey("staff_group.id", ondelete="CASCADE"), index=True)
+    staff_user_id: Mapped[str] = mapped_column(ForeignKey("staff_user.id", ondelete="CASCADE"), index=True)
+    assigned_by: Mapped[str] = mapped_column(ForeignKey("staff_user.id"))
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
 class StaffUser(Base):
@@ -36,12 +71,14 @@ class ClientTenant(Base):
     __tablename__ = "client_tenant"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     organization_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), index=True)
+    client_id: Mapped[str | None] = mapped_column(ForeignKey("client.id"), index=True, nullable=True)
     tenant_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(200))
     connection_status: Mapped[str] = mapped_column(String(30), default="pending")
     last_connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     organization: Mapped[Organization] = relationship(back_populates="tenants")
+    client: Mapped["Client | None"] = relationship(back_populates="tenants")
     credential: Mapped["TenantCredential | None"] = relationship(back_populates="tenant", uselist=False, cascade="all, delete-orphan")
 
 

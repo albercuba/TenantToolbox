@@ -37,6 +37,8 @@ Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for se
 - [x] Tenant onboarding via "Magic Link" (read-only prospect assessment flow; managed conversion requires normal consent)
 - [x] PSA integration (generic webhook plus ConnectWise, Autotask, and Halo payload adapters) for ticket creation from alerts
 - [x] Local MSP staff authentication with owner/tech roles and owner-only tenant disconnect guardrail
+- [x] Settings → Users and Groups for local staff accounts and the built-in Administrator/Technician groups
+- [x] Management → Clients with client-scoped tenant connections, guarded client deletion, and owner-only tenant disconnect
 - [x] Role-based access for MSP staff (owner, L1/L2/L3 tech) with explicit operation/manage/admin guardrails
 - [x] Public report API with expiring token links for downstream tools
 - [x] Audit log of every action taken by every technician, per tenant
@@ -102,8 +104,10 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 3. [x] MSP staff auth: first-time setup wizard automatically opens on a new deployment and waits for API readiness; invalid/expired browser tokens are cleared automatically; local email/password + session/JWT; basic RBAC (owner/tech roles)
 4. [x] Azure AD app registration setup docs + admin-consent flow (single tenant first, no GDAP yet)
 5. [x] `client_tenant` model: store tenant ID, name, delegated auth tokens (encrypted), connection status
-6. [x] "Connect a tenant" flow: working frontend action starts admin-consent URL generation → callback → store refresh token, with safe token-exchange diagnostics and automatic navigation to the connected tenant workspace
-7. [x] Minimal dashboard: list of connected tenants, connection health indicator
+6. [x] Client management: create/remove clients, assign tenants during connection, and prevent client removal while tenants remain assigned
+7. [x] "Connect a tenant" flow: working frontend action starts admin-consent URL generation → callback → store refresh token, with safe token-exchange diagnostics and automatic navigation to the connected tenant workspace
+8. [x] Tenant disconnect action: owner-only removal of the tenant and its cascaded tenant data, with an audit event
+9. [x] Minimal dashboard: list of connected tenants, connection health indicator
 
 **Exit criteria:** Can connect one real M365 tenant via OAuth and call Graph API `/me` or `/organization` successfully from the backend, store the token securely, and see it listed in the frontend. The first-time setup wizard creates the initial owner account before this flow is used.
 
