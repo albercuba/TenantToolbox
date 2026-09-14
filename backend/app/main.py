@@ -147,6 +147,8 @@ def microsoft_callback(code: str | None = Query(default=None), state: str | None
     tenant.last_connected_at = datetime.now(timezone.utc)
     tenant.last_error = None
     tenant.credential = TenantCredential(encrypted_refresh_token=encrypt_credential(refresh_token), encrypted_access_token=encrypt_credential(access_token), access_token_expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(tokens.get("expires_in", 3600))))
+    db.flush()
+    write_audit(db, user, "tenant.connect", tenant.id, {"tenant_id": tenant.tenant_id})
     db.commit()
     return RedirectResponse(url=f"{settings.frontend_url}/?connected=1")
 

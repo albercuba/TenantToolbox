@@ -109,7 +109,7 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 1. GDAP / Partner Center bulk-import flow (or CSV import of tenant IDs as an interim step)
 2. [x] Tenant switcher UI (no re-auth needed once connected)
 3. [x] Background worker: scheduled Graph polling per tenant (users, licenses, sign-in logs, security defaults/CA policies) into normalized DB tables
-4. Basic per-tenant views: users list, licenses list, Secure Score
+4. [x] Basic per-tenant views: users list, licenses list, Secure Score
 5. Audit logging middleware (every write action logged)
 
 **Exit criteria:** MSP tech can switch between 2+ connected tenants and see live user/license/Secure Score data pulled on a schedule.
