@@ -32,6 +32,7 @@ Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for se
 ### 3.1 Platform / foundation
 - [ ] Multi-tenant dashboard — switch between client tenants without re-authenticating
 - [x] Tenant onboarding via direct Microsoft Entra admin consent (single tenant connection)
+- [x] Tenant onboarding via CSV import (interim bulk-import path)
 - [ ] Tenant onboarding via Microsoft Partner Center / CSP import
 - [ ] Tenant onboarding via "Magic Link" (self-service admin consent flow sent to the client)
 - [ ] PSA integration (ConnectWise, Autotask, Halo, etc.) for ticket creation from alerts
@@ -104,9 +105,9 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 
 ### Phase 1 — Multi-tenant core + basic Graph read access
 
-**Progress:** The authenticated tenant list API and frontend tenant management view are complete. Graph synchronization, refresh-token handling, normalized user/license/Secure Score snapshots, and a scheduled worker are now implemented. The remaining Phase 1 items below are intentionally not marked complete until the full switching UI, live views, and audit trail are finished.
+**Progress:** The authenticated tenant list API and frontend tenant management view are complete. CSV tenant import, Graph synchronization, refresh-token handling, normalized user/license/Secure Score snapshots, and a scheduled worker are now implemented. The remaining Phase 1 items below are intentionally not marked complete until the full switching UI, live views, and audit trail are finished.
 
-1. GDAP / Partner Center bulk-import flow (or CSV import of tenant IDs as an interim step)
+1. [x] CSV tenant import interim path; GDAP / Partner Center bulk-import flow remains open
 2. [x] Tenant switcher UI (no re-auth needed once connected)
 3. [x] Background worker: scheduled Graph polling per tenant (users, licenses, sign-in logs, security defaults/CA policies) into normalized DB tables
 4. [x] Basic per-tenant views: users list, licenses list, Secure Score

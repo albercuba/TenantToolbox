@@ -1,10 +1,12 @@
+import csv
+import io
 import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
@@ -155,6 +157,36 @@ def microsoft_callback(code: str | None = Query(default=None), state: str | None
 
 def tenant_to_response(tenant: ClientTenant) -> TenantResponse:
     return TenantResponse(id=tenant.id, tenant_id=tenant.tenant_id, display_name=tenant.display_name, connection_status=tenant.connection_status, last_connected_at=tenant.last_connected_at, last_error=tenant.last_error)
+
+
+@app.post("/api/tenants/import", status_code=status.HTTP_201_CREATED)
+def import_tenants(file: UploadFile = File(...), user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict[str, int]:
+    if file.content_type not in {"text/csv", "application/csv", "application/vnd.ms-excel"}:
+        raise HTTPException(status_code=415, detail="Upload a CSV file")
+    try:
+        rows = csv.DictReader(io.StringIO(file.file.read().decode("utf-8-sig")))
+    except (UnicodeDecodeError, csv.Error) as exc:
+        raise HTTPException(status_code=400, detail="CSV must be UTF-8 encoded") from exc
+    if not rows.fieldnames or "tenant_id" not in rows.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV must contain a tenant_id column")
+    created = 0
+    skipped = 0
+    for row in rows:
+        tenant_id = (row.get("tenant_id") or "").strip()
+        display_name = (row.get("display_name") or tenant_id).strip()
+        if not tenant_id:
+            continue
+        existing = db.scalar(select(ClientTenant).where(ClientTenant.tenant_id == tenant_id))
+        if existing:
+            if existing.organization_id == user.organization_id:
+                skipped += 1
+                continue
+            raise HTTPException(status_code=409, detail="A tenant ID belongs to another organization")
+        db.add(ClientTenant(organization_id=user.organization_id, tenant_id=tenant_id, display_name=display_name, connection_status="pending"))
+        created += 1
+    write_audit(db, user, "tenant.import", payload={"created": created, "skipped": skipped})
+    db.commit()
+    return {"created": created, "skipped": skipped}
 
 
 @app.get("/api/tenants", response_model=list[TenantResponse])
