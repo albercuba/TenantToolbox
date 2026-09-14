@@ -11,6 +11,7 @@ class Settings:
     entra_client_id: str | None = os.getenv("ENTRA_CLIENT_ID")
     entra_client_secret: str | None = os.getenv("ENTRA_CLIENT_SECRET")
     entra_redirect_uri: str = os.getenv("ENTRA_REDIRECT_URI", "http://localhost:8000/api/auth/microsoft/callback")
+    entra_prospect_redirect_uri: str = os.getenv("ENTRA_PROSPECT_REDIRECT_URI", "http://localhost:8000/api/prospect/callback")
     frontend_url: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
     smtp_host: str | None = os.getenv("SMTP_HOST")
     smtp_port: int = int(os.getenv("SMTP_PORT", "587"))

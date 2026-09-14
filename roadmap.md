@@ -195,8 +195,11 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 **Exit criteria:** View a ranked list of OAuth-connected third-party apps per tenant with a risk score.
 
 ### Phase 8 — Prospect / sales-enablement flow
-1. Read-only "Magic Link" flow: generate a link, prospect grants read-only consent, TenantToolbox runs a security assessment without persisting full write access
-2. Free assessment report generation (reuses Phase 4 reporting engine)
+
+**Progress:** Short-lived read-only assessment links, separate prospect redirect URI, read-only Graph organization/user assessment, and report retrieval are implemented. Managed-tenant conversion remains open.
+
+1. [x] Read-only "Magic Link" flow: generate a link, prospect grants read-only consent, TenantToolbox runs a security assessment without persisting full write access
+2. [x] Free assessment report generation (reuses Phase 4 reporting engine)
 3. Convert prospect → managed tenant flow (upgrade consent to full management scope)
 
 **Exit criteria:** Send yourself a Magic Link, grant read-only consent from a test tenant, and receive a generated risk-assessment report.

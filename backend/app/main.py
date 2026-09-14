@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import html
 import io
 import secrets
@@ -18,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import Base, engine, get_db
 from app.models import (Alert, AlertRule, AuditLog, BaselineTemplate, ClientTenant, ComplianceControl, DiscoveredApp, DriftEvent,
-                        Report, ReportSchedule, StaffUser, TenantBaselineAssignment, TenantCredential,
+                        ProspectAssessment, Report, ReportSchedule, StaffUser, TenantBaselineAssignment, TenantCredential,
                         TenantDeviceSnapshot, TenantLicenseSnapshot, TenantSecureScoreSnapshot,
                         TenantUserSnapshot)
 from app.alerting import ingest_risky_signins, ingest_tenant_alerts
@@ -70,6 +71,7 @@ app.add_middleware(
 
 # The state is short-lived and process-local for this initial single-instance flow.
 _oauth_states: dict[str, str] = {}
+_prospect_states: dict[str, str] = {}
 
 
 class SignupRequest(BaseModel):
@@ -383,6 +385,52 @@ def microsoft_start(user: StaffUser = Depends(get_current_user)) -> dict[str, st
     _oauth_states[state] = user.id
     params = {"client_id": settings.entra_client_id, "response_type": "code", "redirect_uri": settings.entra_redirect_uri, "response_mode": "query", "scope": "openid profile offline_access User.Read Organization.Read.All", "state": state}
     return {"authorization_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" + urlencode(params)}
+
+
+@app.post("/api/prospect/assessments", status_code=status.HTTP_201_CREATED)
+def create_prospect_assessment(user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict[str, str]:
+    raw_token = secrets.token_urlsafe(32)
+    assessment = ProspectAssessment(organization_id=user.organization_id, token_hash=hashlib.sha256(raw_token.encode()).hexdigest(), expires_at=datetime.now(timezone.utc) + timedelta(hours=24))
+    db.add(assessment)
+    db.flush()
+    state = secrets.token_urlsafe(32)
+    _prospect_states[state] = assessment.id
+    db.commit()
+    params = {"client_id": settings.entra_client_id or "", "response_type": "code", "redirect_uri": settings.entra_prospect_redirect_uri, "response_mode": "query", "scope": "openid profile User.Read Organization.Read.All", "state": state}
+    return {"assessment_id": assessment.id, "magic_link": f"{settings.frontend_url}/prospect/{raw_token}", "authorization_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" + urlencode(params)}
+
+
+@app.get("/api/prospect/callback")
+def prospect_callback(code: str, state: str, db: Session = Depends(get_db)) -> HTMLResponse:
+    assessment_id = _prospect_states.pop(state, None)
+    assessment = db.get(ProspectAssessment, assessment_id) if assessment_id else None
+    if not assessment or assessment.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Invalid or expired assessment link")
+    if not settings.entra_client_id or not settings.entra_client_secret:
+        raise HTTPException(status_code=503, detail="Microsoft OAuth is not configured")
+    response = httpx.post("https://login.microsoftonline.com/common/oauth2/v2.0/token", data={"client_id": settings.entra_client_id, "client_secret": settings.entra_client_secret, "code": code, "redirect_uri": settings.entra_prospect_redirect_uri, "grant_type": "authorization_code", "scope": "openid profile User.Read Organization.Read.All"}, timeout=15)
+    if response.is_error or not response.json().get("access_token"):
+        raise HTTPException(status_code=502, detail="Read-only consent exchange failed")
+    access_token = response.json()["access_token"]
+    org_response = httpx.get("https://graph.microsoft.com/v1.0/organization", headers={"Authorization": f"Bearer {access_token}"}, timeout=15)
+    users_response = httpx.get("https://graph.microsoft.com/v1.0/users?$top=1&$count=true", headers={"Authorization": f"Bearer {access_token}", "ConsistencyLevel": "eventual"}, timeout=15)
+    if org_response.is_error or users_response.is_error:
+        raise HTTPException(status_code=502, detail="Read-only assessment Graph request failed")
+    organization = (org_response.json().get("value") or [{}])[0]
+    report = f"<h1>Microsoft 365 security assessment</h1><p>Organization: {html.escape(organization.get('displayName', 'Unknown'))}</p><p>Tenant ID: {html.escape(organization.get('id', 'Unknown'))}</p><p>Directory user count: {html.escape(str(users_response.json().get('@odata.count', 'Unavailable')))}</p><p>This assessment used read-only delegated access and did not persist tenant credentials.</p>"
+    assessment.status = "completed"
+    assessment.tenant_id = organization.get("id")
+    assessment.report_content = report
+    db.commit()
+    return HTMLResponse(report)
+
+
+@app.get("/api/prospect/{token}/report", response_class=HTMLResponse)
+def prospect_report(token: str, db: Session = Depends(get_db)) -> str:
+    assessment = db.scalar(select(ProspectAssessment).where(ProspectAssessment.token_hash == hashlib.sha256(token.encode()).hexdigest(), ProspectAssessment.status == "completed"))
+    if not assessment or assessment.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    return assessment.report_content or ""
 
 
 @app.get("/api/auth/microsoft/callback")

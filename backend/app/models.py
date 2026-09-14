@@ -215,3 +215,15 @@ class DiscoveredApp(Base):
     permission_scopes: Mapped[list] = mapped_column(JSON)
     risk_score: Mapped[int] = mapped_column(default=0)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ProspectAssessment(Base):
+    __tablename__ = "prospect_assessment"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True)
+    status: Mapped[str] = mapped_column(String(30), default="pending")
+    tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    report_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
