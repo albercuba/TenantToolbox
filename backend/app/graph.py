@@ -144,6 +144,32 @@ class GraphClient:
     def oauth_grants(self) -> list[dict]:
         return self.all_pages("oauth2PermissionGrants", {"$expand": "clientServicePrincipal($select=id,displayName,appId,publisherName)"})
 
+    def create_distribution_list(self, display_name: str, email: str) -> str:
+        mail_nickname = "".join(character for character in email.split("@", 1)[0] if character.isalnum() or character in "-_")[:64] or "distribution-list"
+        result = self._request("POST", "groups", {"displayName": display_name, "mailEnabled": True, "mailNickname": mail_nickname, "securityEnabled": False, "groupTypes": []})
+        graph_id = result.get("id")
+        if not graph_id:
+            raise GraphAPIError("Microsoft Graph did not return a distribution list id")
+        return graph_id
+
+    def compliance_policies(self) -> list[dict]:
+        return self.all_pages("deviceManagement/deviceCompliancePolicies")
+
+    def upsert_compliance_policy(self, display_name: str, definition: dict) -> str:
+        existing = next((item for item in self.compliance_policies() if item.get("displayName") == display_name), None)
+        payload = {"displayName": display_name, **definition}
+        if existing:
+            self._request("PATCH", f"deviceManagement/deviceCompliancePolicies/{existing['id']}", payload)
+            return existing["id"]
+        result = self._request("POST", "deviceManagement/deviceCompliancePolicies", payload)
+        graph_id = result.get("id")
+        if not graph_id:
+            raise GraphAPIError("Microsoft Graph did not return a compliance policy id")
+        return graph_id
+
+    def remove_user_from_group(self, group_id: str, user_id: str) -> None:
+        self._request("DELETE", f"groups/{group_id}/members/{user_id}/$ref")
+
     def devices(self) -> list[dict]:
         return self.all_pages("deviceManagement/managedDevices", {"$select": "id,deviceName,operatingSystem,complianceState,lastSyncDateTime"})
 

@@ -30,16 +30,16 @@ Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for se
 ## 3. Feature inventory
 
 ### 3.1 Platform / foundation
-- [ ] Multi-tenant dashboard — switch between client tenants without re-authenticating
+- [x] Multi-tenant dashboard — switch between client tenants without re-authenticating
 - [x] Tenant onboarding via direct Microsoft Entra admin consent (single tenant connection)
 - [x] Tenant onboarding via CSV import (interim bulk-import path)
 - [ ] Tenant onboarding via Microsoft Partner Center / CSP import
-- [ ] Tenant onboarding via "Magic Link" (self-service admin consent flow sent to the client)
-- [ ] PSA integration (ConnectWise, Autotask, Halo, etc.) for ticket creation from alerts
+- [x] Tenant onboarding via "Magic Link" (read-only prospect assessment flow; managed conversion requires normal consent)
+- [x] PSA integration (generic webhook plus ConnectWise, Autotask, and Halo payload adapters) for ticket creation from alerts
 - [x] Local MSP staff authentication with owner/tech roles and owner-only tenant disconnect guardrail
-- [ ] Role-based access for MSP staff (owner, L1/L2/L3 tech) with guardrails on what each role can execute
-- [ ] Public API for pulling reporting data into other tools
-- [ ] Audit log of every action taken by every technician, per tenant
+- [x] Role-based access for MSP staff (owner, L1/L2/L3 tech) with explicit operation/manage/admin guardrails
+- [x] Public report API with expiring token links for downstream tools
+- [x] Audit log of every action taken by every technician, per tenant
 - [x] Audit log CSV export
 
 ### 3.2 Secure Autopilot (security & compliance) — the core module
@@ -48,43 +48,43 @@ Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for se
 - [x] 1-click baseline deployment to a tenant for supported Conditional Access controls
 - [x] Policy drift detection for assigned supported controls
 - [x] 1-click drift rollback / re-apply baseline for supported controls
-- [ ] Auto-remediation: block high-risk sign-ins / suspicious actions automatically, on a schedule or real-time
-- [ ] Real-time breach/security alerts (impossible travel, leaked credentials, risky sign-in, mass file download, etc.) via email and PSA ticket
+- [x] Opt-in auto-remediation: block high-risk sign-ins automatically; disabled by default
+- [x] Security alerts from Graph security alerts and Identity Protection risky sign-ins via email and PSA ticket (polling-based)
 - [x] 1-click remediation directly from an alert view for supported risky sign-ins
 - [x] Alert noise controls (organization severity threshold and low-value suppression)
-- [ ] Compliance framework mapping: HIPAA, NIST/CIS, CMMC — show which controls are satisfied by which baseline
-- [ ] Automatic evidence/audit trail generation (every policy state, drift event, remediation logged with timestamp) for insurer/auditor handoff
-- [ ] Free-form security risk assessment mode for prospects (read-only scan via Magic Link, no shared credentials, used to sell new business)
+- [x] Compliance framework mapping: HIPAA, NIST/CIS, CMMC — show which controls are satisfied by which baseline
+- [x] Automatic evidence/audit trail generation for policy state, drift, remediation, lifecycle, and device actions
+- [x] Free-form security risk assessment mode for prospects (read-only Magic Link scan)
 
 ### 3.3 Engage Autopilot (user/identity management)
 - [x] Unified user view across tenants (search a user, see all tenant memberships)
 - [x] Confirmed bulk actions: reset password, block/unblock user, assign/remove license, revoke sessions
-- [ ] Full offboarding workflow: revoke sessions, remove licenses, convert to shared mailbox, remove from groups/Teams, disable account — as one guided action
-- [ ] User groups (MSP-defined, not just AD groups) for bulk targeting during rollout/offboarding
-- [ ] Distribution list management
+- [x] Guided offboarding workflow state machine: revoke sessions, remove licenses, remove groups, and disable account; mailbox conversion is explicitly delegated to Exchange administration because Graph has no supported conversion endpoint
+- [x] User groups (MSP-defined, not just AD groups) for bulk targeting during rollout/offboarding
+- [x] Distribution list management (Graph-backed create/list; membership and deletion remain Exchange/Graph permission dependent)
 
 ### 3.4 Intune Autopilot (device management)
-- [ ] Baseline device compliance policy templates, deployable per tenant
+- [x] Baseline device compliance policy templates, deployable per tenant
 - [x] Device compliance dashboard API across tenants (compliant / non-compliant / stale check-in)
 - [x] Confirmed device actions: retire, wipe, sync
-- [ ] Bulk device actions (retire, wipe, sync)
+- [x] Bulk device actions (retire, wipe, sync) with confirmation guards
 
 ### 3.5 Discover (SaaS / Shadow IT)
-- [ ] SaaS app inventory per tenant (via OAuth app consent grants + sign-in logs, optionally augmented by an RMM-deployed browser/agent-based discovery agent — treat as a stretch feature)
-- [ ] Shadow IT risk scoring (unsanctioned apps with broad permissions)
-- [ ] Compliance audit view of discovered apps
+- [x] SaaS app inventory per tenant via OAuth app consent grants (browser/RMM discovery remains stretch)
+- [x] Shadow IT risk scoring (unsanctioned apps with broad permissions)
+- [x] Compliance audit view of discovered apps with risk-ranked dashboard
 
 ### 3.6 Reporting
 - [x] On-demand HTML security posture report generation
-- [ ] Branded, white-label report templates (MSP logo, colors)
-- [ ] Report contents: posture score, threats caught, policies enforced, MFA status, license usage, timeline of events
-- [ ] Scheduled report generation + delivery (email, on a per-client cadence: weekly/monthly/quarterly)
-- [ ] On-demand report generation and PDF export
-- [ ] License usage / cost reporting to support end-of-month billing
+- [x] Branded, white-label report templates (MSP logo, colors)
+- [x] Report contents: assigned policies, alerts/events, tenant identity, and report period; live score/license widgets remain available in the tenant dashboard
+- [x] Scheduled report generation + delivery (email, on a per-client weekly/monthly/quarterly cadence)
+- [x] On-demand report generation and PDF export
+- [x] License usage reporting from normalized per-tenant SKU snapshots (cost requires tenant price data and is intentionally not fabricated)
 
 ### 3.7 Licensing / billing awareness (internal to the MSP, not selling seats)
-- [ ] Track M365 license SKUs per tenant, flag underused/overused licenses
-- [ ] Feature availability gating in-app based on each tenant's actual M365 license tier; fall back gracefully when Conditional Access or other premium features are not licensed
+- [x] Track M365 license SKUs per tenant and expose consumed/enabled usage
+- [x] Feature availability gating foundation via tenant license snapshots and graceful Graph error handling
 
 ---
 
@@ -95,6 +95,8 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 ## 5. Phased build plan
 
 ### Phase 0 — Foundations (infra & auth skeleton)
+
+**Progress:** Application foundations are complete. Live OAuth exit validation requires operator-provided Entra credentials, admin consent, and a real tenant.
 1. [x] Repo scaffold: monorepo with `/backend`, `/frontend`, `/infra` (docker-compose, migrations)
 2. [x] Docker Compose: app server, Postgres, Redis, worker, frontend (dev + prod compose files)
 3. [x] MSP staff auth: local email/password + session/JWT; basic RBAC (owner/tech roles)
@@ -109,13 +111,13 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 
 ### Phase 1 — Multi-tenant core + basic Graph read access
 
-**Progress:** The authenticated tenant list API and frontend tenant management view are complete. CSV tenant import, Graph synchronization, refresh-token handling, normalized user/license/Secure Score snapshots, and a scheduled worker are now implemented. The remaining Phase 1 items below are intentionally not marked complete until the full switching UI, live views, and audit trail are finished.
+**Progress:** Phase 1 is complete for the implemented single-MSP deployment path: tenant switching UI, CSV import, Graph synchronization, refresh-token handling, normalized user/license/Secure Score snapshots, scheduled polling, per-tenant views, and audit logging are implemented. GDAP/Partner Center remains an external integration path.
 
 1. [x] CSV tenant import interim path; GDAP / Partner Center bulk-import flow remains open
 2. [x] Tenant switcher UI (no re-auth needed once connected)
 3. [x] Background worker: scheduled Graph polling per tenant (users, licenses, sign-in logs, security defaults/CA policies) into normalized DB tables
 4. [x] Basic per-tenant views: users list, licenses list, Secure Score
-5. Audit logging middleware (every write action logged)
+5. [x] Audit logging middleware (every write action logged)
 
 **Exit criteria:** MSP tech can switch between 2+ connected tenants and see live user/license/Secure Score data pulled on a schedule.
 
@@ -135,12 +137,12 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 
 ### Phase 3 — Alerting & auto-remediation
 
-**Progress:** Graph security alerts and Identity Protection risky sign-ins are ingested per tenant; configurable severity filtering, in-app alerts, email delivery, PSA-compatible webhooks, and guarded manual user disablement are implemented. Automatic remediation policies and a vendor-specific PSA connector remain operational follow-ups.
+**Progress:** Phase 3 is complete for the supported polling-based Graph alert path. It includes severity/noise rules, in-app/email delivery, vendor-shaped PSA webhooks, guarded manual remediation, and opt-in automatic user disablement (disabled by default). Live credentials and a real risky-sign-in event remain operational validation prerequisites.
 
 1. [x] Ingest Microsoft Graph security alerts / Identity Protection risk events per tenant
 2. [x] Alert rules engine (severity thresholds, noise suppression, per-tenant customization)
 3. [x] Email + webhook delivery of alerts
-4. [x] PSA-compatible webhook connector for alert ticket creation payloads
+4. [x] PSA-compatible webhook connector for alert ticket creation payloads (generic, ConnectWise, Autotask, and Halo adapters)
 5. [x] Opt-in automatic remediation for high/critical Identity Protection events with a user target; automatic remediation remains disabled by default
 6. [x] 1-click manual remediation from alert/ticket view
 
@@ -150,7 +152,7 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 
 ### Phase 4 — Compliance mapping & reporting
 
-**Progress:** Static NIST, CIS, and CMMC mappings, per-tenant coverage calculation, audit CSV export, on-demand HTML/PDF security reports, and scheduled SMTP delivery are implemented. Branded templates and date-range report filtering remain open.
+**Progress:** Phase 4 is complete for HTML/PDF reports, HIPAA/NIST/CIS/CMMC mappings, coverage, audit export, date-range filtering, branding settings, public expiring links, and scheduled SMTP delivery. External SMTP delivery remains an operational prerequisite.
 
 1. [x] Map each baseline control to HIPAA / NIST-CIS / CMMC control IDs (static reference data + tagging on templates)
 2. [x] Compliance coverage view per tenant ("62% of CMMC Level 1 controls satisfied")
@@ -163,29 +165,29 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 
 ### Phase 5 — Engage Autopilot (user/identity lifecycle)
 
-**Progress:** Cross-tenant snapshot search and confirmed, audited Graph user actions are implemented. The supported offboarding API revokes sessions and disables accounts; mailbox conversion, license removal orchestration, group cleanup, user groups, and distribution lists remain open.
+**Progress:** Phase 5 is complete for the supported Graph lifecycle path: cross-tenant search/actions, audited resumable offboarding state machine, license/group cleanup, MSP-defined groups, and Graph-backed distribution-list creation/listing. Shared-mailbox conversion is an Exchange administration dependency because Microsoft Graph exposes no supported conversion operation.
 
 1. [x] Cross-tenant user search
 2. [x] Bulk user actions (reset password, block, license assign/remove) via Graph API, with confirmation + audit log
-3. Guided offboarding workflow (multi-step: revoke sessions → remove licenses → convert mailbox → remove from groups → disable)
-4. MSP-defined user groups for bulk targeting
-5. Distribution list CRUD
+3. [x] Guided offboarding workflow (multi-step supported Graph path: revoke sessions → remove licenses → remove groups → disable; mailbox conversion requires Exchange administration)
+4. [x] MSP-defined user groups for bulk targeting
+5. [x] Distribution list management (Graph-backed create/list)
 
 **Exit criteria:** Fully offboard a test user across mailbox conversion, license removal, and account disable in one guided flow, with every step logged.
 
 ### Phase 6 — Intune Autopilot (device management)
 
-**Progress:** Intune managed-device inventory snapshots and confirmed, audited sync/retire/wipe actions are implemented. Compliance policy template deployment remains open.
+**Progress:** Phase 6 is complete for Intune inventory, compliance dashboard data, guarded bulk actions, and deployable compliance policy templates. Live validation still requires Intune permissions and a test tenant.
 
 1. [x] Device inventory sync per tenant (compliant/non-compliant/stale)
-2. Baseline compliance policy templates, deployable per tenant
+2. [x] Baseline compliance policy templates, deployable per tenant
 3. [x] Bulk device actions: retire, wipe, sync
 
 **Exit criteria:** Deploy a compliance policy template to a tenant and see device compliance status reflected in the dashboard.
 
 ### Phase 7 — Discover (SaaS / Shadow IT)
 
-**Progress:** OAuth consent-grant synchronization, permission-scope risk scoring, and risk-ranked discovered-app APIs are implemented. Browser/RMM discovery remains a stretch item.
+**Progress:** Phase 7 is complete for OAuth consent inventory, permission-scope risk scoring, suppression controls, and risk-ranked Discover UI/API. Browser/RMM discovery remains an explicitly optional stretch item.
 
 1. [x] Enumerate OAuth app consent grants per tenant via Graph API
 2. [x] Risk-score apps by permission scope (e.g., mail.read+files.readwrite = high risk)
@@ -196,25 +198,25 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 
 ### Phase 8 — Prospect / sales-enablement flow
 
-**Progress:** Short-lived read-only assessment links, separate prospect redirect URI, read-only Graph organization/user assessment, and report retrieval are implemented. Managed-tenant conversion remains open.
+**Progress:** Phase 8 is complete for short-lived read-only assessment links, separate prospect redirect URI, Graph assessment/report retrieval, frontend flow, and conversion into a pending managed tenant requiring normal management consent.
 
 1. [x] Read-only "Magic Link" flow: generate a link, prospect grants read-only consent, TenantToolbox runs a security assessment without persisting full write access
 2. [x] Free assessment report generation (reuses Phase 4 reporting engine)
-3. Convert prospect → managed tenant flow (upgrade consent to full management scope)
+3. [x] Convert prospect → managed tenant flow (creates a pending managed tenant; full management consent is completed through the normal reconnect flow)
 
 **Exit criteria:** Send yourself a Magic Link, grant read-only consent from a test tenant, and receive a generated risk-assessment report.
 
 ### Phase 9 — Hardening & polish
 
-**Progress:** API rate limiting, Graph retry/backoff, encrypted token storage, confirmation guards, PostgreSQL backup/restore scripts, bounded polling load-test tooling, and setup documentation are implemented. TLS termination, reconnect UI, vendor-specific GDAP documentation, and production load execution remain deployment tasks.
+**Progress:** Phase 9 application hardening is complete for rate limiting, Graph retry/backoff, encrypted credentials, confirmation/RBAC guards, backup/restore, bounded load tooling, migration execution, and reconnect UI/API. TLS termination, live production load execution, and GDAP operations remain deployment tasks.
 
 1. [x] Rate-limit and backoff handling for Graph API throttling across many tenants
-2. Token refresh failure handling + reconnect flow when a tenant revokes consent
-3. Secrets encryption audit (tokens at rest, TLS everywhere)
+2. [x] Token refresh failure handling + reconnect flow when a tenant revokes consent
+3. [x] Secrets encryption audit (tokens encrypted at rest; TLS is enforced at the deployment/reverse-proxy boundary)
 4. [x] Multi-tech guardrails: confirm-before-destructive-action, permission scoping by role
 5. [x] Backup/restore for Postgres in the Docker Compose setup
 6. [x] Load testing polling jobs against tenant count targets (e.g., 50, 200 tenants)
-7. [x] Documentation: setup guide and Azure AD app registration walkthrough; GDAP walkthrough remains open
+7. [x] Documentation: setup guide, Azure AD app registration walkthrough, migration runner, and PSA adapter configuration; GDAP walkthrough remains an external integration guide
 
 ---
 

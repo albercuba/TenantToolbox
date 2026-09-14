@@ -179,6 +179,8 @@ class Report(Base):
     content: Mapped[str] = mapped_column(Text)
     created_by: Mapped[str] = mapped_column(ForeignKey("staff_user.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    public_token_hash: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True)
+    public_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ReportSchedule(Base):
@@ -227,3 +229,82 @@ class ProspectAssessment(Base):
     report_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class UserGroup(Base):
+    __tablename__ = "user_group"
+    __table_args__ = (UniqueConstraint("organization_id", "name"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class GroupMembership(Base):
+    __tablename__ = "group_membership"
+    __table_args__ = (UniqueConstraint("user_group_id", "client_tenant_id", "graph_user_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_group_id: Mapped[str] = mapped_column(ForeignKey("user_group.id", ondelete="CASCADE"), index=True)
+    client_tenant_id: Mapped[str] = mapped_column(ForeignKey("client_tenant.id", ondelete="CASCADE"), index=True)
+    graph_user_id: Mapped[str] = mapped_column(String(100))
+    added_by: Mapped[str] = mapped_column(ForeignKey("staff_user.id"))
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class DistributionList(Base):
+    __tablename__ = "distribution_list"
+    __table_args__ = (UniqueConstraint("organization_id", "client_tenant_id", "email"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), index=True)
+    client_tenant_id: Mapped[str] = mapped_column(ForeignKey("client_tenant.id", ondelete="CASCADE"), index=True)
+    graph_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    display_name: Mapped[str] = mapped_column(String(200))
+    email: Mapped[str] = mapped_column(String(320))
+    created_by: Mapped[str] = mapped_column(ForeignKey("staff_user.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class OffboardingWorkflow(Base):
+    __tablename__ = "offboarding_workflow"
+    __table_args__ = (UniqueConstraint("client_tenant_id", "graph_user_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    client_tenant_id: Mapped[str] = mapped_column(ForeignKey("client_tenant.id", ondelete="CASCADE"), index=True)
+    graph_user_id: Mapped[str] = mapped_column(String(100))
+    state: Mapped[str] = mapped_column(String(30), default="pending")
+    completed_steps: Mapped[list] = mapped_column(JSON, default=list)
+    created_by: Mapped[str] = mapped_column(ForeignKey("staff_user.id"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class OffboardingHistory(Base):
+    __tablename__ = "offboarding_history"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workflow_id: Mapped[str] = mapped_column(ForeignKey("offboarding_workflow.id", ondelete="CASCADE"), index=True)
+    action: Mapped[str] = mapped_column(String(50))
+    status: Mapped[str] = mapped_column(String(30))
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    actor_id: Mapped[str] = mapped_column(ForeignKey("staff_user.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class DeviceCompliancePolicyTemplate(Base):
+    __tablename__ = "device_compliance_policy_template"
+    __table_args__ = (UniqueConstraint("organization_id", "name"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    definition: Mapped[dict] = mapped_column(JSON)
+    is_builtin: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class DeviceCompliancePolicyAssignment(Base):
+    __tablename__ = "device_compliance_policy_assignment"
+    __table_args__ = (UniqueConstraint("client_tenant_id", "template_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    client_tenant_id: Mapped[str] = mapped_column(ForeignKey("client_tenant.id", ondelete="CASCADE"), index=True)
+    template_id: Mapped[str] = mapped_column(ForeignKey("device_compliance_policy_template.id", ondelete="CASCADE"), index=True)
+    assigned_by: Mapped[str] = mapped_column(ForeignKey("staff_user.id"))
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

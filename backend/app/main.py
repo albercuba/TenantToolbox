@@ -19,18 +19,25 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import Base, engine, get_db
 from app.models import (Alert, AlertRule, AuditLog, BaselineTemplate, ClientTenant, ComplianceControl, DiscoveredApp, DriftEvent,
-                        ProspectAssessment, Report, ReportSchedule, StaffUser, TenantBaselineAssignment, TenantCredential,
+                        Organization, ProspectAssessment, Report, ReportSchedule, StaffUser, TenantBaselineAssignment, TenantCredential,
                         TenantDeviceSnapshot, TenantLicenseSnapshot, TenantSecureScoreSnapshot,
                         TenantUserSnapshot)
 from app.alerting import ingest_risky_signins, ingest_tenant_alerts
 from app.graph import GraphAPIError, GraphClient
 from app.sync import sync_tenant
-from app.notifications import send_alert_email, send_psa_webhook
+from app.notifications import send_alert_email, send_psa_ticket, send_psa_webhook
 from app.rate_limit import RateLimitMiddleware
+from app.lifecycle import router as lifecycle_router
 from app.security import (create_access_token, encrypt_credential, get_current_user,
                           hash_password, require_owner, verify_password)
+from app.rbac import require_permission, role_permissions
 
 COMPLIANCE_CONTROLS = {
+    "HIPAA": [
+        {"control_id": "164.308(a)(3)", "title": "Workforce access management", "baseline_control": "require_mfa"},
+        {"control_id": "164.312(a)(1)", "title": "Access control", "baseline_control": "require_mfa"},
+        {"control_id": "164.312(e)(1)", "title": "Transmission security", "baseline_control": "block_legacy_auth"},
+    ],
     "NIST": [
         {"control_id": "AC-2", "title": "Account Management", "baseline_control": "require_mfa"},
         {"control_id": "IA-2", "title": "Identification and Authentication", "baseline_control": "require_mfa"},
@@ -70,10 +77,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(RateLimitMiddleware)
+app.include_router(lifecycle_router)
 
 # The state is short-lived and process-local for this initial single-instance flow.
 _oauth_states: dict[str, str] = {}
 _prospect_states: dict[str, str] = {}
+_reconnect_states: dict[str, tuple[str, str]] = {}
 
 
 class SignupRequest(BaseModel):
@@ -107,6 +116,20 @@ class AlertRuleRequest(BaseModel):
 class ReportScheduleRequest(BaseModel):
     cadence: str
     recipient_email: EmailStr
+
+
+class ReportRequest(BaseModel):
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+
+
+class BrandingRequest(BaseModel):
+    color: str
+    logo_url: str | None = None
+
+
+class ProspectConversionRequest(BaseModel):
+    display_name: str | None = None
 
 
 class UserActionRequest(BaseModel):
@@ -187,7 +210,7 @@ def list_devices(tenant_id: str, user: StaffUser = Depends(get_current_user), db
 
 
 @app.post("/api/tenants/{tenant_id}/devices/{device_id}/action")
-def device_action(tenant_id: str, device_id: str, action: str = Query(...), confirm: bool = Query(False), user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, str]:
+def device_action(tenant_id: str, device_id: str, action: str = Query(...), confirm: bool = Query(False), user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> dict[str, str]:
     if not confirm:
         raise HTTPException(status_code=400, detail="Set confirm=true to execute this action")
     tenant = ensure_tenant_access(tenant_id, user, db)
@@ -210,7 +233,7 @@ def search_users(query: str = Query(min_length=2), user: StaffUser = Depends(get
 
 
 @app.post("/api/users/action")
-def user_action(payload: UserActionRequest, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, str]:
+def user_action(payload: UserActionRequest, user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> dict[str, str]:
     if not payload.confirm:
         raise HTTPException(status_code=400, detail="Set confirm=true to execute this action")
     tenant = ensure_tenant_access(payload.tenant_id, user, db)
@@ -236,7 +259,7 @@ def user_action(payload: UserActionRequest, user: StaffUser = Depends(get_curren
 
 
 @app.post("/api/users/offboard")
-def offboard_user(payload: UserActionRequest, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, list[str]]:
+def offboard_user(payload: UserActionRequest, user: StaffUser = Depends(require_permission("manage")), db: Session = Depends(get_db)) -> dict[str, list[str]]:
     if not payload.confirm:
         raise HTTPException(status_code=400, detail="Set confirm=true to execute offboarding")
     tenant = ensure_tenant_access(payload.tenant_id, user, db)
@@ -292,11 +315,24 @@ def export_audit_log(user: StaffUser = Depends(get_current_user), db: Session = 
 
 
 @app.post("/api/tenants/{tenant_id}/reports", status_code=status.HTTP_201_CREATED)
-def generate_report(tenant_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, str]:
+def generate_report(tenant_id: str, payload: ReportRequest | None = None, user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> dict[str, str]:
     tenant = ensure_tenant_access(tenant_id, user, db)
-    alerts = db.scalars(select(Alert).where(Alert.client_tenant_id == tenant.id).order_by(Alert.created_at.desc()).limit(20)).all()
+    payload = payload or ReportRequest()
+    if payload.start_date and payload.end_date and payload.start_date > payload.end_date:
+        raise HTTPException(status_code=400, detail="start_date must be before end_date")
+    alert_query = select(Alert).where(Alert.client_tenant_id == tenant.id)
+    if payload.start_date:
+        alert_query = alert_query.where(Alert.created_at >= payload.start_date)
+    if payload.end_date:
+        alert_query = alert_query.where(Alert.created_at <= payload.end_date)
+    alerts = db.scalars(alert_query.order_by(Alert.created_at.desc()).limit(100)).all()
     assignments = db.scalars(select(TenantBaselineAssignment).where(TenantBaselineAssignment.client_tenant_id == tenant.id)).all()
-    content = f"<h1>{html.escape(tenant.display_name)} security report</h1><p>Generated {datetime.now(timezone.utc).isoformat()}</p><h2>Assigned baselines</h2><p>{len(assignments)}</p><h2>Recent alerts</h2><ul>{''.join(f'<li>{html.escape(item.title)} ({html.escape(item.severity)})</li>' for item in alerts) or '<li>No alerts</li>'}</ul>"
+    organization = db.get(Organization, user.organization_id)
+    generated = datetime.now(timezone.utc)
+    period = f"{payload.start_date.date().isoformat() if payload.start_date else 'all time'} to {payload.end_date.date().isoformat() if payload.end_date else generated.date().isoformat()}"
+    logo = f'<img src="{html.escape(organization.branding_logo_url)}" alt="Organization logo" />' if organization and organization.branding_logo_url else ""
+    color = organization.branding_color if organization else "#2490ef"
+    content = f'<article style="--brand-color:{html.escape(color)}">{logo}<h1>{html.escape(tenant.display_name)} security report</h1><p>Reporting period: {html.escape(period)}</p><p>Generated {generated.isoformat()}</p><h2>Assigned baselines</h2><p>{len(assignments)}</p><h2>Alerts</h2><ul>{"".join(f"<li>{html.escape(item.title)} ({html.escape(item.severity)})</li>" for item in alerts) or "<li>No alerts</li>"}</ul></article>'
     report = Report(organization_id=user.organization_id, client_tenant_id=tenant.id, report_type="security_posture", title=f"{tenant.display_name} security report", content=content, created_by=user.id)
     db.add(report)
     db.flush()
@@ -309,6 +345,26 @@ def generate_report(tenant_id: str, user: StaffUser = Depends(get_current_user),
 def get_report(report_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> str:
     report = db.get(Report, report_id)
     if not report or report.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return report.content
+
+
+@app.post("/api/reports/{report_id}/public-link")
+def publish_report(report_id: str, user: StaffUser = Depends(require_permission("manage")), db: Session = Depends(get_db)) -> dict[str, str]:
+    report = db.get(Report, report_id)
+    if not report or report.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Report not found")
+    raw_token = secrets.token_urlsafe(32)
+    report.public_token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    report.public_expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+    db.commit()
+    return {"url": f"/api/public/reports/{raw_token}", "expires_at": report.public_expires_at.isoformat()}
+
+
+@app.get("/api/public/reports/{token}", response_class=HTMLResponse)
+def public_report(token: str, db: Session = Depends(get_db)) -> str:
+    report = db.scalar(select(Report).where(Report.public_token_hash == hashlib.sha256(token.encode()).hexdigest()))
+    if not report or not report.public_expires_at or report.public_expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=404, detail="Report not found")
     return report.content
 
@@ -375,8 +431,27 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 
 
 @app.get("/api/auth/me")
-def me(user: StaffUser = Depends(get_current_user)) -> dict[str, str]:
-    return {"id": user.id, "email": user.email, "role": user.role, "organization_id": user.organization_id}
+def me(user: StaffUser = Depends(get_current_user)) -> dict:
+    return {"id": user.id, "email": user.email, "role": user.role, "organization_id": user.organization_id, "permissions": role_permissions(user)}
+
+
+@app.get("/api/auth/permissions")
+def permissions(user: StaffUser = Depends(get_current_user)) -> dict[str, bool]:
+    return role_permissions(user)
+
+
+@app.put("/api/organization/branding")
+def update_branding(payload: BrandingRequest, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict[str, str | None]:
+    color = payload.color.strip()
+    if not color.startswith("#") or len(color) not in {4, 7}:
+        raise HTTPException(status_code=400, detail="Branding color must be a short or full hexadecimal color")
+    organization = db.get(Organization, user.organization_id)
+    if not organization:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    organization.branding_color = color
+    organization.branding_logo_url = payload.logo_url.strip() if payload.logo_url else None
+    db.commit()
+    return {"color": organization.branding_color, "logo_url": organization.branding_logo_url}
 
 
 @app.get("/api/auth/microsoft/start")
@@ -427,6 +502,24 @@ def prospect_callback(code: str, state: str, db: Session = Depends(get_db)) -> H
     return HTMLResponse(report)
 
 
+@app.post("/api/prospect/assessments/{assessment_id}/convert")
+def convert_prospect(assessment_id: str, payload: ProspectConversionRequest | None = None, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict:
+    assessment = db.get(ProspectAssessment, assessment_id)
+    if not assessment or assessment.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    if assessment.status != "completed" or not assessment.tenant_id:
+        raise HTTPException(status_code=409, detail="Only a completed assessment can be converted")
+    tenant = db.scalar(select(ClientTenant).where(ClientTenant.organization_id == user.organization_id, ClientTenant.tenant_id == assessment.tenant_id))
+    if not tenant:
+        tenant = ClientTenant(organization_id=user.organization_id, tenant_id=assessment.tenant_id, display_name=(payload.display_name.strip() if payload and payload.display_name else assessment.tenant_id), connection_status="pending")
+        db.add(tenant)
+    assessment.status = "converted"
+    db.flush()
+    write_audit(db, user, "prospect.convert", tenant.id, {"assessment_id": assessment.id})
+    db.commit()
+    return {"tenant_id": tenant.id, "status": assessment.status, "connection_status": tenant.connection_status}
+
+
 @app.get("/api/prospect/{token}/report", response_class=HTMLResponse)
 def prospect_report(token: str, db: Session = Depends(get_db)) -> str:
     assessment = db.scalar(select(ProspectAssessment).where(ProspectAssessment.token_hash == hashlib.sha256(token.encode()).hexdigest(), ProspectAssessment.status == "completed"))
@@ -435,9 +528,21 @@ def prospect_report(token: str, db: Session = Depends(get_db)) -> str:
     return assessment.report_content or ""
 
 
+@app.post("/api/tenants/{tenant_id}/reconnect")
+def reconnect_tenant(tenant_id: str, user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> dict[str, str]:
+    tenant = ensure_tenant_access(tenant_id, user, db)
+    if not settings.entra_client_id:
+        raise HTTPException(status_code=503, detail="ENTRA_CLIENT_ID is not configured")
+    state = secrets.token_urlsafe(32)
+    _reconnect_states[state] = (user.id, tenant.id)
+    params = {"client_id": settings.entra_client_id, "response_type": "code", "redirect_uri": settings.entra_redirect_uri, "response_mode": "query", "scope": "openid profile offline_access User.Read Organization.Read.All", "state": state}
+    return {"authorization_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" + urlencode(params), "tenant_id": tenant.id}
+
+
 @app.get("/api/auth/microsoft/callback")
 def microsoft_callback(code: str | None = Query(default=None), state: str | None = Query(default=None), error: str | None = Query(default=None), db: Session = Depends(get_db)):
-    user_id = _oauth_states.pop(state or "", None)
+    reconnect = _reconnect_states.pop(state or "", None)
+    user_id = reconnect[0] if reconnect else _oauth_states.pop(state or "", None)
     if error or not code or not user_id:
         raise HTTPException(status_code=400, detail=error or "Invalid or expired OAuth state")
     if not settings.entra_client_id or not settings.entra_client_secret:
@@ -463,7 +568,9 @@ def microsoft_callback(code: str | None = Query(default=None), state: str | None
     user = db.get(StaffUser, user_id)
     if not user:
         raise HTTPException(status_code=400, detail="OAuth owner no longer exists")
-    tenant = db.scalar(select(ClientTenant).where(ClientTenant.tenant_id == tenant_id))
+    tenant = db.scalar(select(ClientTenant).where(ClientTenant.tenant_id == tenant_id, ClientTenant.organization_id == user.organization_id))
+    if reconnect and (not tenant or tenant.id != reconnect[1]):
+        raise HTTPException(status_code=409, detail="OAuth tenant does not match the reconnect request")
     if not tenant:
         tenant = ClientTenant(organization_id=user.organization_id, tenant_id=tenant_id, display_name=graph_org.get("displayName", tenant_id))
         db.add(tenant)
@@ -567,7 +674,7 @@ def list_baselines(user: StaffUser = Depends(get_current_user), db: Session = De
 
 
 @app.post("/api/tenants/{tenant_id}/baselines/{baseline_id}", status_code=status.HTTP_201_CREATED)
-def assign_baseline(tenant_id: str, baseline_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, str]:
+def assign_baseline(tenant_id: str, baseline_id: str, user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> dict[str, str]:
     tenant = ensure_tenant_access(tenant_id, user, db)
     if not db.get(BaselineTemplate, baseline_id):
         raise HTTPException(status_code=404, detail="Baseline not found")
@@ -583,7 +690,7 @@ def assign_baseline(tenant_id: str, baseline_id: str, user: StaffUser = Depends(
 
 
 @app.post("/api/tenants/{tenant_id}/baselines/{baseline_id}/deploy")
-def deploy_baseline(tenant_id: str, baseline_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+def deploy_baseline(tenant_id: str, baseline_id: str, user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> dict:
     tenant = ensure_tenant_access(tenant_id, user, db)
     baseline = db.get(BaselineTemplate, baseline_id)
     if not baseline:
@@ -600,7 +707,7 @@ def deploy_baseline(tenant_id: str, baseline_id: str, user: StaffUser = Depends(
 
 
 @app.post("/api/tenants/{tenant_id}/baselines/{baseline_id}/drift")
-def detect_baseline_drift(tenant_id: str, baseline_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+def detect_baseline_drift(tenant_id: str, baseline_id: str, user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> dict:
     tenant = ensure_tenant_access(tenant_id, user, db)
     baseline = db.get(BaselineTemplate, baseline_id)
     if not baseline:
@@ -648,10 +755,9 @@ def ingest_alerts(tenant_id: str, user: StaffUser = Depends(get_current_user), d
     write_audit(db, user, "alert.ingest", tenant.id, {"created": created})
     db.commit()
     if created:
-        payload = {"event": "security_alerts_created", "tenant_id": tenant.id, "count": created}
         try:
             send_alert_email("TenantToolbox security alerts", f"{created} new security alert(s) were detected for {tenant.display_name}.")
-            send_psa_webhook(payload)
+            send_psa_ticket(title="TenantToolbox security alerts", description=f"{created} new security alert(s) were detected for {tenant.display_name}.", severity="high", tenant_id=tenant.id, source="tenanttoolbox")
         except httpx.HTTPError:
             # Alert persistence must not fail because an optional delivery target is unavailable.
             pass
@@ -659,7 +765,7 @@ def ingest_alerts(tenant_id: str, user: StaffUser = Depends(get_current_user), d
 
 
 @app.post("/api/alerts/{alert_id}/remediate")
-def remediate_alert(alert_id: str, confirm: bool = Query(False), user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, str]:
+def remediate_alert(alert_id: str, confirm: bool = Query(False), user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> dict[str, str]:
     if not confirm:
         raise HTTPException(status_code=400, detail="Set confirm=true to execute remediation")
     alert = db.get(Alert, alert_id)
@@ -688,7 +794,7 @@ def list_alerts(user: StaffUser = Depends(get_current_user), db: Session = Depen
 
 
 @app.post("/api/tenants/{tenant_id}/baselines/{baseline_id}/rollback")
-def rollback_baseline(tenant_id: str, baseline_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+def rollback_baseline(tenant_id: str, baseline_id: str, user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> dict:
     result = deploy_baseline(tenant_id, baseline_id, user, db)
     tenant = ensure_tenant_access(tenant_id, user, db)
     open_events = db.scalars(select(DriftEvent).where(DriftEvent.client_tenant_id == tenant.id, DriftEvent.baseline_template_id == baseline_id, DriftEvent.resolved_at.is_(None))).all()
@@ -709,7 +815,7 @@ def tenant_baselines(tenant_id: str, user: StaffUser = Depends(get_current_user)
 
 
 @app.post("/api/tenants/{tenant_id}/sync")
-def synchronize_tenant(tenant_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+def synchronize_tenant(tenant_id: str, user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> dict:
     tenant = db.scalar(select(ClientTenant).where(ClientTenant.id == tenant_id, ClientTenant.organization_id == user.organization_id))
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")

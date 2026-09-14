@@ -24,7 +24,7 @@ def test_graph_security_alerts_are_paginated(monkeypatch):
         FakeResponse({"value": [{"id": "a2", "severity": "critical"}]}),
     ])
     monkeypatch.setattr("app.graph.decrypt_credential", lambda value: "access-token")
-    monkeypatch.setattr("app.graph.httpx.get", lambda *args, **kwargs: next(responses))
+    monkeypatch.setattr("app.graph.httpx.request", lambda *args, **kwargs: next(responses))
     tenant = SimpleNamespace()
     credential = SimpleNamespace(encrypted_access_token="encrypted", access_token_expires_at=datetime.now(timezone.utc) + timedelta(hours=1))
 

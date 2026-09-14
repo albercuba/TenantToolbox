@@ -4,6 +4,7 @@ from email.message import EmailMessage
 import httpx
 
 from app.config import settings
+from app.psa import ticket_payload
 
 
 def send_alert_email(subject: str, body: str, recipient: str | None = None) -> bool:
@@ -34,3 +35,9 @@ def send_psa_webhook(payload: dict) -> bool:
     response = httpx.post(settings.psa_webhook_url, json=payload, timeout=15)
     response.raise_for_status()
     return True
+
+
+def send_psa_ticket(*, title: str, description: str, severity: str, tenant_id: str, source: str) -> bool:
+    """Send a vendor-shaped ticket payload to the configured PSA webhook."""
+    payload = ticket_payload(settings.psa_vendor, title=title, description=description, severity=severity, tenant_id=tenant_id, source=source)
+    return send_psa_webhook(payload)
