@@ -49,7 +49,7 @@ permissions** and add the permissions required by the features you will use:
 |---|---|
 | Tenant connection and organization verification | `User.Read`, `Organization.Read.All`, `offline_access`, `openid`, `profile` |
 | User and license snapshots | `User.Read.All`, `Directory.Read.All` |
-| Secure Score | `SecurityActions.Read.All` or the current Secure Score permission exposed by your tenant |
+| Secure Score | `SecurityEvents.Read.All` |
 | Conditional Access baseline deployment | `Policy.Read.All`, `Policy.ReadWrite.ConditionalAccess` |
 | Security alerts and risky sign-ins | `SecurityAlert.Read.All`, `AuditLog.Read.All`, `IdentityRiskEvent.Read.All` |
 | User lifecycle actions | `User.ReadWrite.All`, `Directory.ReadWrite.All` |

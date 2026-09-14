@@ -24,7 +24,12 @@ def sync_tenant(db: Session, tenant: ClientTenant) -> dict[str, int | str]:
     synced_at = datetime.now(timezone.utc)
     users = client.users()
     licenses = client.licenses()
-    score = client.secure_score()
+    try:
+        score = client.secure_score()
+    except GraphAPIError:
+        # Secure Score is a premium/optional permission; preserve the useful
+        # user and license snapshots when it is unavailable.
+        score = None
 
     db.query(TenantUserSnapshot).filter_by(client_tenant_id=tenant.id).delete()
     db.query(TenantLicenseSnapshot).filter_by(client_tenant_id=tenant.id).delete()

@@ -56,8 +56,20 @@ class GraphClient:
     def get(self, path: str, params: dict[str, str] | None = None) -> dict:
         response = self._http("GET", f"{GRAPH_URL}/{path.lstrip('/')}", headers={"Authorization": f"Bearer {self._access_token()}"}, params=params, timeout=30)
         if response.is_error:
-            raise GraphAPIError(f"Microsoft Graph request failed: {response.status_code}")
+            raise GraphAPIError(self._error_message(response, path))
         return response.json()
+
+    @staticmethod
+    def _error_message(response: httpx.Response, path: str) -> str:
+        try:
+            error = response.json().get("error", {})
+            code = error.get("code")
+            message = error.get("message")
+            if code or message:
+                return f"Microsoft Graph request failed for {path}: {response.status_code} {code or ''} {message or ''}".strip()
+        except (ValueError, AttributeError):
+            pass
+        return f"Microsoft Graph request failed for {path}: {response.status_code}"
 
     def all_pages(self, path: str, params: dict[str, str] | None = None) -> list[dict]:
         items: list[dict] = []
@@ -66,7 +78,7 @@ class GraphClient:
         while next_url:
             response = self._http("GET", next_url, headers={"Authorization": f"Bearer {self._access_token()}"}, params=query, timeout=30)
             if response.is_error:
-                raise GraphAPIError(f"Microsoft Graph request failed: {response.status_code}")
+                raise GraphAPIError(self._error_message(response, path))
             payload = response.json()
             items.extend(payload.get("value", []))
             next_url = payload.get("@odata.nextLink")

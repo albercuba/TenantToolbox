@@ -115,7 +115,7 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 
 1. [x] CSV tenant import interim path; GDAP / Partner Center bulk-import flow remains open
 2. [x] Tenant switcher UI (no re-auth needed once connected)
-3. [x] Background worker: scheduled Graph polling per tenant (users, licenses, sign-in logs, security defaults/CA policies) into normalized DB tables
+3. [x] Background worker: scheduled Graph polling per tenant (users, licenses, sign-in logs, security defaults/CA policies) into normalized DB tables, with graceful optional Secure Score handling
 4. [x] Basic per-tenant views: users list, licenses list, Secure Score, tenant identity, and discoverable Sync now actions
 5. [x] Audit logging middleware (every write action logged)
 
