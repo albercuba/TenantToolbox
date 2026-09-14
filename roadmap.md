@@ -88,13 +88,13 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 ## 5. Phased build plan
 
 ### Phase 0 — Foundations (infra & auth skeleton)
-1. Repo scaffold: monorepo with `/backend`, `/frontend`, `/infra` (docker-compose, migrations)
-2. Docker Compose: app server, Postgres, Redis, worker, frontend (dev + prod compose files)
-3. MSP staff auth: local email/password + session/JWT; basic RBAC (owner/tech roles)
-4. Azure AD app registration setup docs + admin-consent flow (single tenant first, no GDAP yet)
-5. `client_tenant` model: store tenant ID, name, delegated auth tokens (encrypted), connection status
-6. "Connect a tenant" flow: admin-consent URL generation → callback → store refresh token
-7. Minimal dashboard: list of connected tenants, connection health indicator
+1. [x] Repo scaffold: monorepo with `/backend`, `/frontend`, `/infra` (docker-compose, migrations)
+2. [x] Docker Compose: app server, Postgres, Redis, worker, frontend (dev + prod compose files)
+3. [x] MSP staff auth: local email/password + session/JWT; basic RBAC (owner/tech roles)
+4. [x] Azure AD app registration setup docs + admin-consent flow (single tenant first, no GDAP yet)
+5. [x] `client_tenant` model: store tenant ID, name, delegated auth tokens (encrypted), connection status
+6. [x] "Connect a tenant" flow: admin-consent URL generation → callback → store refresh token
+7. [x] Minimal dashboard: list of connected tenants, connection health indicator
 
 **Exit criteria:** Can connect one real M365 tenant via OAuth and call Graph API `/me` or `/organization` successfully from the backend, store the token securely, and see it listed in the frontend.
 

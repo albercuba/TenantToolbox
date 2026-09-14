@@ -13,8 +13,7 @@ def test_health_check() -> None:
     assert response.json() == {"status": "ok", "service": "tenanttoolbox-api"}
 
 
-def test_tenants_start_empty() -> None:
+def test_tenants_require_authentication() -> None:
     response = client.get("/api/tenants")
 
-    assert response.status_code == 200
-    assert response.json() == []
+    assert response.status_code == 401

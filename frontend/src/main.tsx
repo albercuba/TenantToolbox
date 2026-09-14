@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -24,6 +24,7 @@ function Icon({ children }: { children: ReactNode }) {
 function App() {
   const [activeView, setActiveView] = useState("dashboard");
   const [apiStatus, setApiStatus] = useState("Checking API…");
+  const [token, setToken] = useState(() => localStorage.getItem("tenanttoolbox_token"));
 
   useEffect(() => {
     fetch("/api/health")
@@ -33,6 +34,8 @@ function App() {
   }, []);
 
   const navigate = (view: string) => setActiveView(view);
+
+  if (!token) return <Login onLogin={(accessToken) => { localStorage.setItem("tenanttoolbox_token", accessToken); setToken(accessToken); }} />;
 
   return (
     <>
@@ -57,10 +60,26 @@ function App() {
       </aside>
 
       <main className="main">
-        {activeView === "dashboard" ? <Dashboard apiStatus={apiStatus} onTenants={() => navigate("tenants")} /> : <TenantList />}
+        {activeView === "dashboard" ? <Dashboard apiStatus={apiStatus} onTenants={() => navigate("tenants")} /> : <TenantList token={token} />}
       </main>
     </>
   );
+}
+
+function Login({ onLogin }: { onLogin: (token: string) => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setError("");
+    const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ username: email, password }) });
+    if (!response.ok) { setError("Sign-in failed. Check your email and password."); return; }
+    onLogin((await response.json()).access_token);
+  };
+
+  return <main className="main" style={{ maxWidth: "520px", margin: "80px auto" }}><div className="panel"><div className="page-head"><div><h1 className="page-title">Sign in to TenantToolbox</h1><div className="page-subtitle">Manage your Microsoft 365 client tenants securely</div></div></div><form onSubmit={submit}><label className="form-field"><span>Email</span><input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label className="form-field"><span>Password</span><input required type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error && <div className="delta down">{error}</div>}<button className="btn btn-primary" type="submit">Sign in</button></form></div></main>;
 }
 
 function Dashboard({ apiStatus, onTenants }: { apiStatus: string; onTenants: () => void }) {
@@ -72,8 +91,17 @@ function Dashboard({ apiStatus, onTenants }: { apiStatus: string; onTenants: () 
   </div>;
 }
 
-function TenantList() {
-  return <div className="view active"><div className="breadcrumb"><a href="#dashboard">Home</a><span className="sep">/</span><span>Client tenants</span></div><div className="page-head"><div><h1 className="page-title">Client tenants</h1><div className="page-subtitle">{tenants.length} connected Microsoft 365 organizations</div></div><div className="page-actions"><button className="btn btn-primary">+ Connect tenant</button></div></div><div className="list-table-wrap"><table className="list-table"><thead><tr><th>Tenant</th><th>Domain</th><th>Users</th><th>Security score</th><th>Connection</th></tr></thead><tbody>{tenants.map((tenant) => <tr key={tenant.domain}><td className="cell-primary">{tenant.name}</td><td>{tenant.domain}</td><td>{tenant.users}</td><td>{tenant.score}</td><td><span className={`badge ${tenant.status === "Connected" ? "ok" : "warn"}`}><span className="dot" />{tenant.status}</span></td></tr>)}</tbody></table></div></div>;
+function TenantList({ token }: { token: string }) {
+  const [connectedTenants, setConnectedTenants] = useState<Tenant[]>([]);
+
+  useEffect(() => {
+    fetch("/api/tenants", { headers: { Authorization: `Bearer ${token}` } })
+      .then((response) => response.ok ? response.json() : Promise.reject())
+      .then((items: Array<{ display_name: string; tenant_id: string; connection_status: string }>) => setConnectedTenants(items.map((item) => ({ name: item.display_name, domain: item.tenant_id, status: item.connection_status === "connected" ? "Connected" : "Needs attention", users: 0, score: "—" }))));
+  }, [token]);
+
+  const rows = connectedTenants.length ? connectedTenants : tenants;
+  return <div className="view active"><div className="breadcrumb"><a href="#dashboard">Home</a><span className="sep">/</span><span>Client tenants</span></div><div className="page-head"><div><h1 className="page-title">Client tenants</h1><div className="page-subtitle">{tenants.length} connected Microsoft 365 organizations</div></div><div className="page-actions"><button className="btn btn-primary">+ Connect tenant</button></div></div><div className="list-table-wrap"><table className="list-table"><thead><tr><th>Tenant</th><th>Domain</th><th>Users</th><th>Security score</th><th>Connection</th></tr></thead><tbody>{rows.map((tenant) => <tr key={tenant.domain}><td className="cell-primary">{tenant.name}</td><td>{tenant.domain}</td><td>{tenant.users}</td><td>{tenant.score}</td><td><span className={`badge ${tenant.status === "Connected" ? "ok" : "warn"}`}><span className="dot" />{tenant.status}</span></td></tr>)}</tbody></table></div></div>;
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

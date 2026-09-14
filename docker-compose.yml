@@ -7,8 +7,10 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://tenanttoolbox:tenanttoolbox@postgres:5432/tenanttoolbox
+      DATABASE_URL: postgresql+psycopg://tenanttoolbox:tenanttoolbox@postgres:5432/tenanttoolbox
       REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Set CREDENTIAL_ENCRYPTION_KEY in .env}
     depends_on:
       postgres:
         condition: service_healthy
@@ -21,8 +23,8 @@ services:
     volumes:
       - ./backend:/app
     environment:
-      DATABASE_URL: postgresql://tenanttoolbox:tenanttoolbox@postgres:5432/tenanttoolbox
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://tenanttoolbox:tenanttoolbox@postgres:5432/tenanttoolbox}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     depends_on:
       postgres:
         condition: service_healthy
