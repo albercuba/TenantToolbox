@@ -97,3 +97,23 @@ class TenantSecureScoreSnapshot(Base):
     max_score: Mapped[float | None]
     control_states: Mapped[dict] = mapped_column(JSON)
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class BaselineTemplate(Base):
+    __tablename__ = "baseline_template"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+    description: Mapped[str] = mapped_column(Text)
+    definition: Mapped[dict] = mapped_column(JSON)
+    is_builtin: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class TenantBaselineAssignment(Base):
+    __tablename__ = "tenant_baseline_assignment"
+    __table_args__ = (UniqueConstraint("client_tenant_id", "baseline_template_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    client_tenant_id: Mapped[str] = mapped_column(ForeignKey("client_tenant.id", ondelete="CASCADE"), index=True)
+    baseline_template_id: Mapped[str] = mapped_column(ForeignKey("baseline_template.id"), index=True)
+    assigned_by: Mapped[str] = mapped_column(ForeignKey("staff_user.id"))
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

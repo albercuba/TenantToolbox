@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import Base, engine, get_db
-from app.models import (AuditLog, ClientTenant, Organization, StaffUser, TenantCredential,
+from app.models import (AuditLog, BaselineTemplate, ClientTenant, Organization,
+                        StaffUser, TenantBaselineAssignment, TenantCredential,
                         TenantLicenseSnapshot, TenantSecureScoreSnapshot,
                         TenantUserSnapshot)
 from app.sync import sync_tenant
@@ -27,6 +28,13 @@ from app.security import (create_access_token, encrypt_credential, get_current_u
 async def lifespan(_app: FastAPI):
     # Migrations are the deployment source of truth; this keeps a fresh local checkout usable.
     Base.metadata.create_all(bind=engine)
+    with Session(engine) as db:
+        if not db.scalar(select(BaselineTemplate)):
+            db.add_all([
+                BaselineTemplate(name="Basic MFA Enforcement", description="Require strong authentication for staff accounts.", is_builtin=True, definition={"controls": [{"type": "conditional_access", "name": "require_mfa", "target": "all_users", "state": "enabled"}]}),
+                BaselineTemplate(name="CIS Level 1 Foundation", description="Foundational identity and session controls aligned to a conservative CIS-style posture.", is_builtin=True, definition={"controls": [{"type": "conditional_access", "name": "require_mfa", "target": "all_users", "state": "enabled"}, {"type": "conditional_access", "name": "block_legacy_auth", "target": "all_users", "state": "enabled"}]}),
+            ])
+            db.commit()
     yield
 
 
@@ -193,6 +201,34 @@ def import_tenants(file: UploadFile = File(...), user: StaffUser = Depends(requi
 def list_tenants(user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[TenantResponse]:
     tenants = db.scalars(select(ClientTenant).where(ClientTenant.organization_id == user.organization_id).order_by(ClientTenant.display_name)).all()
     return [tenant_to_response(tenant) for tenant in tenants]
+
+
+@app.get("/api/baselines")
+def list_baselines(user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
+    return [{"id": item.id, "name": item.name, "description": item.description, "definition": item.definition, "is_builtin": item.is_builtin} for item in db.scalars(select(BaselineTemplate).order_by(BaselineTemplate.name)).all()]
+
+
+@app.post("/api/tenants/{tenant_id}/baselines/{baseline_id}", status_code=status.HTTP_201_CREATED)
+def assign_baseline(tenant_id: str, baseline_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, str]:
+    tenant = ensure_tenant_access(tenant_id, user, db)
+    if not db.get(BaselineTemplate, baseline_id):
+        raise HTTPException(status_code=404, detail="Baseline not found")
+    assignment = db.scalar(select(TenantBaselineAssignment).where(TenantBaselineAssignment.client_tenant_id == tenant.id, TenantBaselineAssignment.baseline_template_id == baseline_id))
+    if assignment:
+        return {"id": assignment.id, "status": "already_assigned"}
+    assignment = TenantBaselineAssignment(client_tenant_id=tenant.id, baseline_template_id=baseline_id, assigned_by=user.id)
+    db.add(assignment)
+    db.flush()
+    write_audit(db, user, "baseline.assign", tenant.id, {"baseline_id": baseline_id})
+    db.commit()
+    return {"id": assignment.id, "status": "assigned"}
+
+
+@app.get("/api/tenants/{tenant_id}/baselines")
+def tenant_baselines(tenant_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
+    ensure_tenant_access(tenant_id, user, db)
+    assignments = db.scalars(select(TenantBaselineAssignment).where(TenantBaselineAssignment.client_tenant_id == tenant_id)).all()
+    return [{"id": item.baseline_template_id, "assigned_at": item.assigned_at} for item in assignments]
 
 
 @app.post("/api/tenants/{tenant_id}/sync")
