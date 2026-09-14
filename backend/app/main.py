@@ -244,9 +244,12 @@ def device_action(tenant_id: str, device_id: str, action: str = Query(...), conf
 
 
 @app.get("/api/users/search")
-def search_users(query: str = Query(min_length=2), user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
-    pattern = f"%{query.lower()}%"
-    rows = db.execute(select(TenantUserSnapshot, ClientTenant).join(ClientTenant, TenantUserSnapshot.client_tenant_id == ClientTenant.id).where(ClientTenant.organization_id == user.organization_id, (TenantUserSnapshot.display_name.ilike(pattern) | TenantUserSnapshot.user_principal_name.ilike(pattern)))).all()
+def search_users(query: str = Query(default=""), user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
+    statement = select(TenantUserSnapshot, ClientTenant).join(ClientTenant, TenantUserSnapshot.client_tenant_id == ClientTenant.id).where(ClientTenant.organization_id == user.organization_id)
+    if query.strip():
+        pattern = f"%{query.lower()}%"
+        statement = statement.where(TenantUserSnapshot.display_name.ilike(pattern) | TenantUserSnapshot.user_principal_name.ilike(pattern))
+    rows = db.execute(statement.order_by(ClientTenant.display_name, TenantUserSnapshot.display_name)).all()
     return [{"tenant_id": tenant.id, "tenant_name": tenant.display_name, "user_id": item.graph_id, "display_name": item.display_name, "user_principal_name": item.user_principal_name, "account_enabled": item.account_enabled} for item, tenant in rows]
 
 
