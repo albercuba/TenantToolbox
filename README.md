@@ -10,9 +10,10 @@ Phase 0 foundation is implemented with:
 - PostgreSQL models and versioned initial migration for organizations, staff, tenants, and encrypted credentials
 - Microsoft Entra admin-consent URL and callback flow with Graph organization verification
 - React + TypeScript + Vite frontend using the `Templates/PharmaPMS/ui-template` visual system
-- Docker Compose services for the API, frontend, PostgreSQL, Redis, and worker placeholder
+- Docker Compose services for the API, frontend, PostgreSQL, Redis, and scheduled Graph sync worker
+- Normalized tenant snapshots for users, licenses, and Secure Score
 
-The SPA now includes local sign-in and loads the authenticated tenant list from the API. Tenant posture metrics remain placeholders until Phase 1 Graph polling is implemented. See [`docs/azure-ad-setup.md`](docs/azure-ad-setup.md) for Entra configuration.
+The SPA includes local sign-in and loads the authenticated tenant list from the API. Run `POST /api/tenants/{id}/sync` to trigger a tenant sync, or let the worker poll connected tenants every 15 minutes. See [`docs/azure-ad-setup.md`](docs/azure-ad-setup.md) for Entra configuration.
 
 ## Local development
 

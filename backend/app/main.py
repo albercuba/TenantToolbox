@@ -14,7 +14,10 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import Base, engine, get_db
-from app.models import ClientTenant, Organization, StaffUser, TenantCredential
+from app.models import (ClientTenant, Organization, StaffUser, TenantCredential,
+                        TenantLicenseSnapshot, TenantSecureScoreSnapshot,
+                        TenantUserSnapshot)
+from app.sync import sync_tenant
 from app.security import (create_access_token, encrypt_credential, get_current_user,
                           hash_password, require_owner, verify_password)
 
@@ -145,6 +148,48 @@ def tenant_to_response(tenant: ClientTenant) -> TenantResponse:
 def list_tenants(user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[TenantResponse]:
     tenants = db.scalars(select(ClientTenant).where(ClientTenant.organization_id == user.organization_id).order_by(ClientTenant.display_name)).all()
     return [tenant_to_response(tenant) for tenant in tenants]
+
+
+@app.post("/api/tenants/{tenant_id}/sync")
+def synchronize_tenant(tenant_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    tenant = db.scalar(select(ClientTenant).where(ClientTenant.id == tenant_id, ClientTenant.organization_id == user.organization_id))
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    try:
+        return sync_tenant(db, tenant)
+    except RuntimeError as exc:
+        tenant.connection_status = "needs_attention"
+        tenant.last_error = str(exc)
+        db.commit()
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/api/tenants/{tenant_id}/users")
+def list_tenant_users(tenant_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
+    ensure_tenant_access(tenant_id, user, db)
+    return [{"id": item.graph_id, "display_name": item.display_name, "user_principal_name": item.user_principal_name, "account_enabled": item.account_enabled, "synced_at": item.synced_at} for item in db.scalars(select(TenantUserSnapshot).where(TenantUserSnapshot.client_tenant_id == tenant_id).order_by(TenantUserSnapshot.display_name)).all()]
+
+
+@app.get("/api/tenants/{tenant_id}/licenses")
+def list_tenant_licenses(tenant_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
+    ensure_tenant_access(tenant_id, user, db)
+    return [{"sku_id": item.sku_id, "sku_part_number": item.sku_part_number, "consumed_units": item.consumed_units, "enabled_units": item.enabled_units, "synced_at": item.synced_at} for item in db.scalars(select(TenantLicenseSnapshot).where(TenantLicenseSnapshot.client_tenant_id == tenant_id).order_by(TenantLicenseSnapshot.sku_part_number)).all()]
+
+
+@app.get("/api/tenants/{tenant_id}/secure-score")
+def tenant_secure_score(tenant_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict | None:
+    ensure_tenant_access(tenant_id, user, db)
+    item = db.scalar(select(TenantSecureScoreSnapshot).where(TenantSecureScoreSnapshot.client_tenant_id == tenant_id).order_by(TenantSecureScoreSnapshot.synced_at.desc()))
+    if not item:
+        return None
+    return {"score": item.score, "max_score": item.max_score, "control_states": item.control_states, "synced_at": item.synced_at}
+
+
+def ensure_tenant_access(tenant_id: str, user: StaffUser, db: Session) -> ClientTenant:
+    tenant = db.scalar(select(ClientTenant).where(ClientTenant.id == tenant_id, ClientTenant.organization_id == user.organization_id))
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return tenant
 
 
 @app.delete("/api/tenants/{tenant_id}", status_code=status.HTTP_204_NO_CONTENT)

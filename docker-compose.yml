@@ -19,12 +19,14 @@ services:
 
   worker:
     build: ./backend
-    command: ["python", "-c", "print('TenantToolbox worker placeholder: scheduled jobs will be added in Phase 1')"]
+    command: ["python", "workers.py"]
     volumes:
       - ./backend:/app
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://tenanttoolbox:tenanttoolbox@postgres:5432/tenanttoolbox}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Set CREDENTIAL_ENCRYPTION_KEY in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
     depends_on:
       postgres:
         condition: service_healthy

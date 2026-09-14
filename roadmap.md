@@ -104,11 +104,11 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 
 ### Phase 1 — Multi-tenant core + basic Graph read access
 
-**Progress:** The authenticated tenant list API and frontend tenant management view are complete. The remaining Phase 1 items below are intentionally not marked complete until they support live tenant data and switching behavior.
+**Progress:** The authenticated tenant list API and frontend tenant management view are complete. Graph synchronization, refresh-token handling, normalized user/license/Secure Score snapshots, and a scheduled worker are now implemented. The remaining Phase 1 items below are intentionally not marked complete until the full switching UI, live views, and audit trail are finished.
 
 1. GDAP / Partner Center bulk-import flow (or CSV import of tenant IDs as an interim step)
 2. Tenant switcher UI (no re-auth needed once connected)
-3. Background worker: scheduled Graph polling per tenant (users, licenses, sign-in logs, security defaults/CA policies) into normalized DB tables
+3. [x] Background worker: scheduled Graph polling per tenant (users, licenses, sign-in logs, security defaults/CA policies) into normalized DB tables
 4. Basic per-tenant views: users list, licenses list, Secure Score
 5. Audit logging middleware (every write action logged)
 

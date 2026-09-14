@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -52,3 +52,35 @@ class TenantCredential(Base):
     encrypted_access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     access_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     tenant: Mapped[ClientTenant] = relationship(back_populates="credential")
+
+
+class TenantUserSnapshot(Base):
+    __tablename__ = "tenant_user_snapshot"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    client_tenant_id: Mapped[str] = mapped_column(ForeignKey("client_tenant.id", ondelete="CASCADE"), index=True)
+    graph_id: Mapped[str] = mapped_column(String(100))
+    display_name: Mapped[str] = mapped_column(String(200))
+    user_principal_name: Mapped[str] = mapped_column(String(320))
+    account_enabled: Mapped[bool | None]
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class TenantLicenseSnapshot(Base):
+    __tablename__ = "tenant_license_snapshot"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    client_tenant_id: Mapped[str] = mapped_column(ForeignKey("client_tenant.id", ondelete="CASCADE"), index=True)
+    sku_id: Mapped[str] = mapped_column(String(100))
+    sku_part_number: Mapped[str] = mapped_column(String(200))
+    consumed_units: Mapped[int] = mapped_column(default=0)
+    enabled_units: Mapped[int] = mapped_column(default=0)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class TenantSecureScoreSnapshot(Base):
+    __tablename__ = "tenant_secure_score_snapshot"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    client_tenant_id: Mapped[str] = mapped_column(ForeignKey("client_tenant.id", ondelete="CASCADE"), index=True)
+    score: Mapped[float | None]
+    max_score: Mapped[float | None]
+    control_states: Mapped[dict] = mapped_column(JSON)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
