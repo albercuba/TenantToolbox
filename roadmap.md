@@ -90,7 +90,7 @@ Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for se
 
 ## 4. Frontend design system
 
-The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its visual reference. Preserve its Desk-style layout, Inter typography, compact spacing, card/table patterns, and status color semantics while replacing pharmacy-specific content with TenantToolbox concepts. Copy only the reusable style system into this repository; do not make TenantToolbox depend on the template project at runtime. The sidebar uses the reference button reset, full-width spacing, active-state tint, responsive drawer behavior, compact 216px navigation rail, and dark topbar with a white brand area.
+The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its visual reference. Preserve its Desk-style layout, Inter typography, compact spacing, card/table patterns, and status color semantics while replacing pharmacy-specific content with TenantToolbox concepts. Copy only the reusable style system into this repository; do not make TenantToolbox depend on the template project at runtime. The sidebar and topbar use the reference button reset, full-width spacing, active-state tint, responsive drawer behavior, 240px navigation rail, and white Desk-style header.
 
 ## 5. Phased build plan
 
