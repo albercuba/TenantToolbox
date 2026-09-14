@@ -54,6 +54,7 @@ def test_client_response_contains_frontend_tenant_summary():
                 "id": tenant.id,
                 "name": "Acme M365",
                 "domain": "tenant-1",
+                "tenant_id": "tenant-1",
                 "status": "Connected",
                 "connection_status": "connected",
                 "last_connected_at": None,

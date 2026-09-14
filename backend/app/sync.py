@@ -22,6 +22,15 @@ def sync_tenant(db: Session, tenant: ClientTenant) -> dict[str, int | str]:
         raise GraphAPIError("Tenant has no delegated credential")
     client = GraphClient(tenant, tenant.credential)
     synced_at = datetime.now(timezone.utc)
+    try:
+        organization = client.organization()
+        verified_domains = organization.get("verifiedDomains") or []
+        tenant.primary_domain = next((item.get("name") for item in verified_domains if item.get("isDefault") and item.get("name")), None) or next((item.get("name") for item in verified_domains if item.get("name")), None)
+        if organization.get("displayName"):
+            tenant.display_name = organization["displayName"]
+    except GraphAPIError:
+        # Domain metadata is useful but should not prevent the core snapshots from syncing.
+        pass
     users = client.users()
     licenses = client.licenses()
     try:

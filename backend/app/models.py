@@ -73,6 +73,7 @@ class ClientTenant(Base):
     organization_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), index=True)
     client_id: Mapped[str | None] = mapped_column(ForeignKey("client.id"), index=True, nullable=True)
     tenant_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
+    primary_domain: Mapped[str | None] = mapped_column(String(320), nullable=True)
     display_name: Mapped[str] = mapped_column(String(200))
     connection_status: Mapped[str] = mapped_column(String(30), default="pending")
     last_connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

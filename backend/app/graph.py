@@ -85,6 +85,9 @@ class GraphClient:
             query = None
         return items
 
+    def organization(self) -> dict:
+        return self.get("organization", {"$select": "displayName,verifiedDomains"}).get("value", [{}])[0]
+
     def users(self) -> list[dict]:
         return self.all_pages("users", {"$select": "id,displayName,userPrincipalName,accountEnabled"})
 

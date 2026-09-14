@@ -111,6 +111,7 @@ class TenantResponse(BaseModel):
     id: str
     tenant_id: str
     client_id: str | None = None
+    primary_domain: str | None = None
     display_name: str
     connection_status: str
     last_connected_at: datetime | None
@@ -485,7 +486,8 @@ def client_to_response(client: Client, db: Session | None = None) -> dict:
             {
                 "id": tenant.id,
                 "name": tenant.display_name,
-                "domain": tenant.tenant_id,
+                "domain": tenant.primary_domain or tenant.tenant_id,
+                "tenant_id": tenant.tenant_id,
                 "status": "Connected" if tenant.connection_status == "connected" else "Needs attention",
                 "connection_status": tenant.connection_status,
                 "last_connected_at": tenant.last_connected_at,
@@ -839,7 +841,9 @@ def microsoft_callback(code: str | None = Query(default=None), state: str | None
                 db.add(legacy_client)
                 db.flush()
             requested_client_id = legacy_client.id
-        tenant = ClientTenant(organization_id=user.organization_id, client_id=requested_client_id, tenant_id=tenant_id, display_name=graph_org.get("displayName", tenant_id))
+        verified_domains = graph_org.get("verifiedDomains") or []
+        primary_domain = next((item.get("name") for item in verified_domains if item.get("isDefault") and item.get("name")), None) or next((item.get("name") for item in verified_domains if item.get("name")), None)
+        tenant = ClientTenant(organization_id=user.organization_id, client_id=requested_client_id, tenant_id=tenant_id, primary_domain=primary_domain, display_name=graph_org.get("displayName", tenant_id))
         db.add(tenant)
         db.flush()
     elif requested_client_id and not reconnect and tenant.client_id != requested_client_id:
@@ -855,7 +859,7 @@ def microsoft_callback(code: str | None = Query(default=None), state: str | None
 
 
 def tenant_to_response(tenant: ClientTenant) -> TenantResponse:
-    return TenantResponse(id=tenant.id, tenant_id=tenant.tenant_id, client_id=tenant.client_id, display_name=tenant.display_name, connection_status=tenant.connection_status, last_connected_at=tenant.last_connected_at, last_error=tenant.last_error)
+    return TenantResponse(id=tenant.id, tenant_id=tenant.tenant_id, client_id=tenant.client_id, primary_domain=tenant.primary_domain, display_name=tenant.display_name, connection_status=tenant.connection_status, last_connected_at=tenant.last_connected_at, last_error=tenant.last_error)
 
 
 @app.post("/api/tenants/import", status_code=status.HTTP_201_CREATED)
