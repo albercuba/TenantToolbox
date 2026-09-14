@@ -16,10 +16,11 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import Base, engine, get_db
-from app.models import (AuditLog, BaselineTemplate, ClientTenant, Organization,
-                        StaffUser, TenantBaselineAssignment, TenantCredential,
+from app.models import (Alert, AuditLog, BaselineTemplate, ClientTenant, DriftEvent,
+                        Organization, StaffUser, TenantBaselineAssignment, TenantCredential,
                         TenantLicenseSnapshot, TenantSecureScoreSnapshot,
                         TenantUserSnapshot)
+from app.graph import GraphAPIError, GraphClient
 from app.sync import sync_tenant
 from app.security import (create_access_token, encrypt_credential, get_current_user,
                           hash_password, require_owner, verify_password)
@@ -271,6 +272,65 @@ def assign_baseline(tenant_id: str, baseline_id: str, user: StaffUser = Depends(
     write_audit(db, user, "baseline.assign", tenant.id, {"baseline_id": baseline_id})
     db.commit()
     return {"id": assignment.id, "status": "assigned"}
+
+
+@app.post("/api/tenants/{tenant_id}/baselines/{baseline_id}/deploy")
+def deploy_baseline(tenant_id: str, baseline_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    tenant = ensure_tenant_access(tenant_id, user, db)
+    baseline = db.get(BaselineTemplate, baseline_id)
+    if not baseline:
+        raise HTTPException(status_code=404, detail="Baseline not found")
+    if not tenant.credential:
+        raise HTTPException(status_code=409, detail="Tenant has no delegated credential")
+    try:
+        result = GraphClient(tenant, tenant.credential).apply_baseline(baseline.definition)
+        write_audit(db, user, "baseline.deploy", tenant.id, {"baseline_id": baseline.id, **result})
+        db.commit()
+        return result
+    except GraphAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/tenants/{tenant_id}/baselines/{baseline_id}/drift")
+def detect_baseline_drift(tenant_id: str, baseline_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    tenant = ensure_tenant_access(tenant_id, user, db)
+    baseline = db.get(BaselineTemplate, baseline_id)
+    if not baseline:
+        raise HTTPException(status_code=404, detail="Baseline not found")
+    if not tenant.credential:
+        raise HTTPException(status_code=409, detail="Tenant has no delegated credential")
+    try:
+        differences = GraphClient(tenant, tenant.credential).baseline_differences(baseline.definition)
+    except GraphAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if differences:
+        event = DriftEvent(client_tenant_id=tenant.id, baseline_template_id=baseline.id, differences=differences)
+        db.add(event)
+        db.flush()
+        db.add(Alert(client_tenant_id=tenant.id, drift_event_id=event.id, severity="high", title="Baseline drift detected", message=f"{len(differences)} control(s) differ from {baseline.name}."))
+        write_audit(db, user, "baseline.drift_detected", tenant.id, {"baseline_id": baseline.id, "differences": differences})
+        db.commit()
+    return {"drift": bool(differences), "differences": differences}
+
+
+@app.get("/api/alerts")
+def list_alerts(user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
+    items = db.scalars(select(Alert).join(ClientTenant).where(ClientTenant.organization_id == user.organization_id).order_by(Alert.created_at.desc()).limit(100)).all()
+    return [{"id": item.id, "tenant_id": item.client_tenant_id, "severity": item.severity, "title": item.title, "message": item.message, "status": item.status, "created_at": item.created_at} for item in items]
+
+
+@app.post("/api/tenants/{tenant_id}/baselines/{baseline_id}/rollback")
+def rollback_baseline(tenant_id: str, baseline_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    result = deploy_baseline(tenant_id, baseline_id, user, db)
+    tenant = ensure_tenant_access(tenant_id, user, db)
+    open_events = db.scalars(select(DriftEvent).where(DriftEvent.client_tenant_id == tenant.id, DriftEvent.baseline_template_id == baseline_id, DriftEvent.resolved_at.is_(None))).all()
+    now = datetime.now(timezone.utc)
+    for event in open_events:
+        event.resolved_at = now
+    db.query(Alert).filter(Alert.client_tenant_id == tenant.id, Alert.status == "open").update({"status": "resolved", "resolved_at": now})
+    write_audit(db, user, "baseline.rollback", tenant.id, {"baseline_id": baseline_id})
+    db.commit()
+    return {"status": "reapplied", **result}
 
 
 @app.get("/api/tenants/{tenant_id}/baselines")

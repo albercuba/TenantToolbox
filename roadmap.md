@@ -117,6 +117,9 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 **Exit criteria:** MSP tech can switch between 2+ connected tenants and see live user/license/Secure Score data pulled on a schedule.
 
 ### Phase 2 — Secure Autopilot v1 (baselines + drift)
+
+**Progress:** Baseline CRUD, assignments, explicit Graph deployment, drift detection, rollback, and in-app drift alerts are implemented. Scheduled drift polling, dashboard actions, and email delivery remain open until completed and tested.
+
 1. [x] Baseline template schema (JSON describing target Conditional Access / MFA / Defender settings)
 2. [x] Ship 2-3 out-of-box templates (e.g., "CIS Level 1", "Basic MFA Enforcement")
 3. [x] Custom template builder UI

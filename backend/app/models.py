@@ -117,3 +117,26 @@ class TenantBaselineAssignment(Base):
     baseline_template_id: Mapped[str] = mapped_column(ForeignKey("baseline_template.id"), index=True)
     assigned_by: Mapped[str] = mapped_column(ForeignKey("staff_user.id"))
     assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class DriftEvent(Base):
+    __tablename__ = "drift_event"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    client_tenant_id: Mapped[str] = mapped_column(ForeignKey("client_tenant.id", ondelete="CASCADE"), index=True)
+    baseline_template_id: Mapped[str] = mapped_column(ForeignKey("baseline_template.id"))
+    differences: Mapped[list] = mapped_column(JSON)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, index=True)
+
+
+class Alert(Base):
+    __tablename__ = "alert"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    client_tenant_id: Mapped[str] = mapped_column(ForeignKey("client_tenant.id", ondelete="CASCADE"), index=True)
+    drift_event_id: Mapped[str | None] = mapped_column(ForeignKey("drift_event.id", ondelete="SET NULL"), nullable=True)
+    severity: Mapped[str] = mapped_column(String(20))
+    title: Mapped[str] = mapped_column(String(200))
+    message: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

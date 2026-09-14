@@ -9,7 +9,10 @@ Phase 0 uses a single multi-tenant Microsoft Entra application with delegated ad
    - `openid`, `profile`, `offline_access`
    - `User.Read`
    - `Organization.Read.All`
+   - `Policy.Read.All` and `Policy.ReadWrite.ConditionalAccess` for baseline drift/deployment
 5. Grant admin consent in the connected client tenant.
 6. Generate a connection URL from `GET /api/auth/microsoft/start` while logged in, or use the dashboard Connect tenant action when that UI is wired to the endpoint.
 
 The callback exchanges the authorization code, obtains the tenant ID from the token response, calls Microsoft Graph `/organization`, and stores only encrypted refresh/access tokens. The API never returns tokens to the frontend.
+
+Phase 2 supports explicit Conditional Access policy deployment, drift detection, and rollback for the `require_mfa` and `block_legacy_auth` controls. Unsupported controls are reported and are never silently applied.
