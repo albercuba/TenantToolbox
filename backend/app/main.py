@@ -1,4 +1,5 @@
 import csv
+import html
 import io
 import secrets
 from contextlib import asynccontextmanager
@@ -8,7 +9,7 @@ from urllib.parse import urlencode
 import httpx
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
@@ -16,8 +17,8 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import Base, engine, get_db
-from app.models import (Alert, AlertRule, AuditLog, BaselineTemplate, ClientTenant, DriftEvent,
-                        Organization, StaffUser, TenantBaselineAssignment, TenantCredential,
+from app.models import (Alert, AlertRule, AuditLog, BaselineTemplate, ClientTenant, ComplianceControl, DriftEvent,
+                        Organization, Report, StaffUser, TenantBaselineAssignment, TenantCredential,
                         TenantLicenseSnapshot, TenantSecureScoreSnapshot,
                         TenantUserSnapshot)
 from app.alerting import ingest_risky_signins, ingest_tenant_alerts
@@ -26,6 +27,23 @@ from app.sync import sync_tenant
 from app.notifications import send_alert_email, send_psa_webhook
 from app.security import (create_access_token, encrypt_credential, get_current_user,
                           hash_password, require_owner, verify_password)
+
+COMPLIANCE_CONTROLS = {
+    "NIST": [
+        {"control_id": "AC-2", "title": "Account Management", "baseline_control": "require_mfa"},
+        {"control_id": "IA-2", "title": "Identification and Authentication", "baseline_control": "require_mfa"},
+        {"control_id": "SC-8", "title": "Transmission Confidentiality", "baseline_control": "block_legacy_auth"},
+    ],
+    "CIS": [
+        {"control_id": "6.3", "title": "Require MFA for externally exposed applications", "baseline_control": "require_mfa"},
+        {"control_id": "3.1", "title": "Establish and maintain a data management process", "baseline_control": "block_legacy_auth"},
+    ],
+    "CMMC": [
+        {"control_id": "IA.L2-3.5.3", "title": "Use multifactor authentication", "baseline_control": "require_mfa"},
+        {"control_id": "AC.L2-3.1.16", "title": "Authorize wireless access", "baseline_control": "block_legacy_auth"},
+    ],
+}
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -92,9 +110,63 @@ def audit_log(user: StaffUser = Depends(get_current_user), db: Session = Depends
     entries = db.scalars(select(AuditLog).where(AuditLog.organization_id == user.organization_id).order_by(AuditLog.created_at.desc()).limit(100)).all()
     return [{"id": item.id, "action": item.action, "tenant_id": item.client_tenant_id, "actor_id": item.actor_id, "payload": item.payload, "created_at": item.created_at} for item in entries]
 
+@app.get("/api/compliance/frameworks")
+def compliance_frameworks(user: StaffUser = Depends(get_current_user)) -> dict[str, int]:
+    return {name: len(controls) for name, controls in COMPLIANCE_CONTROLS.items()}
+
+
+@app.get("/api/tenants/{tenant_id}/compliance/{framework}")
+def compliance_coverage(tenant_id: str, framework: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    ensure_tenant_access(tenant_id, user, db)
+    controls = COMPLIANCE_CONTROLS.get(framework.upper())
+    if controls is None:
+        raise HTTPException(status_code=404, detail="Framework not found")
+    assignments = db.scalars(select(TenantBaselineAssignment).where(TenantBaselineAssignment.client_tenant_id == tenant_id)).all()
+    assigned_names = set()
+    for assignment in assignments:
+        baseline = db.get(BaselineTemplate, assignment.baseline_template_id)
+        if baseline:
+            assigned_names.update(control.get("name") for control in baseline.definition.get("controls", []))
+    satisfied = [control for control in controls if control["baseline_control"] in assigned_names]
+    return {"framework": framework.upper(), "satisfied": len(satisfied), "total": len(controls), "percentage": round(len(satisfied) / len(controls) * 100) if controls else 0, "controls": [{**control, "satisfied": control in satisfied} for control in controls]}
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "tenanttoolbox-api"}
+
+
+@app.get("/api/audit-log/export")
+def export_audit_log(user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> StreamingResponse:
+    entries = db.scalars(select(AuditLog).where(AuditLog.organization_id == user.organization_id).order_by(AuditLog.created_at.desc())).all()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["created_at", "action", "actor_id", "tenant_id", "payload"])
+    for item in entries:
+        writer.writerow([item.created_at.isoformat(), item.action, item.actor_id or "", item.client_tenant_id or "", item.payload])
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=tenanttoolbox-audit.csv"})
+
+
+@app.post("/api/tenants/{tenant_id}/reports", status_code=status.HTTP_201_CREATED)
+def generate_report(tenant_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, str]:
+    tenant = ensure_tenant_access(tenant_id, user, db)
+    alerts = db.scalars(select(Alert).where(Alert.client_tenant_id == tenant.id).order_by(Alert.created_at.desc()).limit(20)).all()
+    assignments = db.scalars(select(TenantBaselineAssignment).where(TenantBaselineAssignment.client_tenant_id == tenant.id)).all()
+    content = f"<h1>{html.escape(tenant.display_name)} security report</h1><p>Generated {datetime.now(timezone.utc).isoformat()}</p><h2>Assigned baselines</h2><p>{len(assignments)}</p><h2>Recent alerts</h2><ul>{''.join(f'<li>{html.escape(item.title)} ({html.escape(item.severity)})</li>' for item in alerts) or '<li>No alerts</li>'}</ul>"
+    report = Report(organization_id=user.organization_id, client_tenant_id=tenant.id, report_type="security_posture", title=f"{tenant.display_name} security report", content=content, created_by=user.id)
+    db.add(report)
+    db.flush()
+    write_audit(db, user, "report.generate", tenant.id, {"report_id": report.id})
+    db.commit()
+    return {"id": report.id, "title": report.title, "format": "html"}
+
+
+@app.get("/api/reports/{report_id}", response_class=HTMLResponse)
+def get_report(report_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> str:
+    report = db.get(Report, report_id)
+    if not report or report.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return report.content
 
 
 @app.post("/api/auth/signup", status_code=status.HTTP_201_CREATED)

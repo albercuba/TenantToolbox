@@ -156,3 +156,24 @@ class AlertRule(Base):
     enabled: Mapped[bool] = mapped_column(default=True)
     suppress_minutes: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class ComplianceControl(Base):
+    __tablename__ = "compliance_control"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    framework: Mapped[str] = mapped_column(String(50), index=True)
+    control_id: Mapped[str] = mapped_column(String(100))
+    title: Mapped[str] = mapped_column(String(200))
+    baseline_control: Mapped[str] = mapped_column(String(100))
+
+
+class Report(Base):
+    __tablename__ = "report"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), index=True)
+    client_tenant_id: Mapped[str] = mapped_column(ForeignKey("client_tenant.id", ondelete="CASCADE"), index=True)
+    report_type: Mapped[str] = mapped_column(String(50))
+    title: Mapped[str] = mapped_column(String(200))
+    content: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(ForeignKey("staff_user.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

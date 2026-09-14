@@ -40,6 +40,7 @@ Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for se
 - [ ] Role-based access for MSP staff (owner, L1/L2/L3 tech) with guardrails on what each role can execute
 - [ ] Public API for pulling reporting data into other tools
 - [ ] Audit log of every action taken by every technician, per tenant
+- [x] Audit log CSV export
 
 ### 3.2 Secure Autopilot (security & compliance) — the core module
 - [x] Built-in security baseline templates with JSON control definitions
@@ -73,6 +74,7 @@ Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for se
 - [ ] Compliance audit view of discovered apps
 
 ### 3.6 Reporting
+- [x] On-demand HTML security posture report generation
 - [ ] Branded, white-label report templates (MSP logo, colors)
 - [ ] Report contents: posture score, threats caught, policies enforced, MFA status, license usage, timeline of events
 - [ ] Scheduled report generation + delivery (email, on a per-client cadence: weekly/monthly/quarterly)
@@ -146,12 +148,15 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 **Implementation note:** The API supports the alert ingestion, webhook payload, and manual remediation path. Offline integration tests and a live-validation runbook are included in `docs/phase3-live-validation.md`. End-to-end validation still requires live Graph/Identity Protection and PSA webhook credentials.
 
 ### Phase 4 — Compliance mapping & reporting
-1. Map each baseline control to HIPAA / NIST-CIS / CMMC control IDs (static reference data + tagging on templates)
-2. Compliance coverage view per tenant ("62% of CMMC Level 1 controls satisfied")
-3. Audit trail export (CSV/PDF) of policy states, drift events, remediations for a date range
-4. Report template engine (HTML → PDF), brandable with MSP logo/colors stored in org settings
+
+**Progress:** Static NIST, CIS, and CMMC mappings, per-tenant coverage calculation, audit CSV export, and on-demand HTML security reports are implemented. PDF rendering, branding settings, scheduled delivery, and date-range report filtering remain open.
+
+1. [x] Map each baseline control to HIPAA / NIST-CIS / CMMC control IDs (static reference data + tagging on templates)
+2. [x] Compliance coverage view per tenant ("62% of CMMC Level 1 controls satisfied")
+3. [x] Audit trail export (CSV/PDF) of policy states, drift events, remediations for a date range (CSV currently supported)
+4. [x] Report template engine (HTML → PDF), brandable with MSP logo/colors stored in org settings (HTML currently supported)
 5. Scheduled report generation + email delivery per tenant, configurable cadence
-6. On-demand report generation from UI
+6. [x] On-demand report generation from UI/API
 
 **Exit criteria:** Generate a branded PDF report for a tenant showing posture score, events, and policy status, and schedule it to auto-send monthly.
 
