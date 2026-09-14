@@ -406,20 +406,37 @@ def list_report_schedules(user: StaffUser = Depends(get_current_user), db: Sessi
     return [{"id": item.id, "tenant_id": item.client_tenant_id, "cadence": item.cadence, "recipient_email": item.recipient_email, "enabled": item.enabled, "next_run_at": item.next_run_at} for item in db.scalars(select(ReportSchedule).where(ReportSchedule.organization_id == user.organization_id)).all()]
 
 
-@app.post("/api/auth/signup", status_code=status.HTTP_201_CREATED)
-def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> dict[str, str]:
+def create_owner(payload: SignupRequest, db: Session) -> dict[str, str]:
     if len(payload.password) < 12:
         raise HTTPException(status_code=400, detail="Password must be at least 12 characters")
-    if db.scalar(select(StaffUser).where(StaffUser.email == payload.email.lower())):
-        raise HTTPException(status_code=409, detail="Email is already registered")
+    if not payload.organization_name.strip():
+        raise HTTPException(status_code=400, detail="Organization name is required")
+    if db.scalar(select(StaffUser)):
+        raise HTTPException(status_code=409, detail="Initial setup has already been completed")
     organization = Organization(name=payload.organization_name.strip())
     user = StaffUser(email=payload.email.lower(), password_hash=hash_password(payload.password), role="owner", organization=organization)
     db.add(user)
     db.commit()
     db.refresh(user)
-    write_audit(db, user, "staff.signup")
+    write_audit(db, user, "staff.setup")
     db.commit()
     return {"access_token": create_access_token(user), "token_type": "bearer", "role": user.role}
+
+
+@app.get("/api/setup/status")
+def setup_status(db: Session = Depends(get_db)) -> dict[str, bool]:
+    return {"setup_required": db.scalar(select(StaffUser)) is None}
+
+
+@app.post("/api/setup", status_code=status.HTTP_201_CREATED)
+def setup(payload: SignupRequest, db: Session = Depends(get_db)) -> dict[str, str]:
+    return create_owner(payload, db)
+
+
+@app.post("/api/auth/signup", status_code=status.HTTP_201_CREATED)
+def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> dict[str, str]:
+    # Keep the legacy endpoint safe: it can only initialize an empty deployment.
+    return create_owner(payload, db)
 
 
 @app.post("/api/auth/login")

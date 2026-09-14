@@ -99,13 +99,13 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 **Progress:** Application foundations are complete. Live OAuth exit validation requires operator-provided Entra credentials, admin consent, and a real tenant.
 1. [x] Repo scaffold: monorepo with `/backend`, `/frontend`, `/infra` (docker-compose, migrations)
 2. [x] Docker Compose: app server, Postgres, Redis, worker, frontend (dev + prod compose files)
-3. [x] MSP staff auth: local email/password + session/JWT; basic RBAC (owner/tech roles)
+3. [x] MSP staff auth: first-time setup wizard creates the initial owner; local email/password + session/JWT; basic RBAC (owner/tech roles)
 4. [x] Azure AD app registration setup docs + admin-consent flow (single tenant first, no GDAP yet)
 5. [x] `client_tenant` model: store tenant ID, name, delegated auth tokens (encrypted), connection status
 6. [x] "Connect a tenant" flow: admin-consent URL generation → callback → store refresh token
 7. [x] Minimal dashboard: list of connected tenants, connection health indicator
 
-**Exit criteria:** Can connect one real M365 tenant via OAuth and call Graph API `/me` or `/organization` successfully from the backend, store the token securely, and see it listed in the frontend.
+**Exit criteria:** Can connect one real M365 tenant via OAuth and call Graph API `/me` or `/organization` successfully from the backend, store the token securely, and see it listed in the frontend. The first-time setup wizard creates the initial owner account before this flow is used.
 
 **Implementation note:** The OAuth and Graph code path is implemented, but this exit criterion still requires a live Entra configuration and real-tenant verification.
 

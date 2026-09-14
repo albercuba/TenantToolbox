@@ -19,7 +19,9 @@ function App() {
   const [managedTenants, setManagedTenants] = useState<Tenant[]>([]);
   const [selectedTenantId, setSelectedTenantId] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
 
+  useEffect(() => { fetch("/api/setup/status").then((response) => response.json()).then((result: { setup_required: boolean }) => setSetupRequired(result.setup_required)).catch(() => setSetupRequired(false)); }, []);
   useEffect(() => { fetch("/api/health").then((response) => response.ok ? setApiStatus("API healthy") : Promise.reject()).catch(() => setApiStatus("API unavailable")); }, []);
   useEffect(() => {
     if (!token) return;
@@ -28,6 +30,8 @@ function App() {
       .catch(() => setManagedTenants([]));
   }, [token, selectedTenantId]);
   const navigate = (view: string) => { setActiveView(view); setMenuOpen(false); };
+  if (setupRequired === null) return <main className="main login-main"><div className="panel"><h1 className="page-title">Checking first-time setup…</h1></div></main>;
+  if (setupRequired) return <Setup onComplete={(accessToken) => { localStorage.setItem("tenanttoolbox_token", accessToken); setToken(accessToken); setSetupRequired(false); }} />;
   if (!token) return <Login onLogin={(accessToken) => { localStorage.setItem("tenanttoolbox_token", accessToken); setToken(accessToken); }} />;
   const selectedTenant = managedTenants.find((tenant) => tenant.domain === selectedTenantId);
   return <>
@@ -43,6 +47,8 @@ function App() {
   </>;
 }
 function Nav({ active, view, onClick, icon, label, count }: { active: string; view: string; onClick: (view: string) => void; icon: ReactNode; label: string; count?: number }) { return <button className={`sidebar-item ${active === view ? "active" : ""}`} onClick={() => onClick(view)}><Icon>{icon}</Icon>{label}{count !== undefined && <span className="count">{count}</span>}</button>; }
+function Setup({ onComplete }: { onComplete: (token: string) => void }) { const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [organizationName, setOrganizationName] = useState(""); const [error, setError] = useState(""); const submit = async (event: FormEvent) => { event.preventDefault(); setError(""); if (password.length < 12) { setError("Use a password with at least 12 characters."); return; } const response = await fetch("/api/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password, organization_name: organizationName }) }); if (!response.ok) { setError(await response.text() || "Setup could not be completed."); return; } onComplete((await response.json()).access_token); }; return <main className="main login-main"><div className="panel"><div className="page-head"><div><h1 className="page-title">Set up TenantToolbox</h1><div className="page-subtitle">Create the first owner account for this deployment.</div></div></div><div className="notice">This wizard is available only until the first account is created.</div><form onSubmit={submit}><label className="form-field"><span>Organization name</span><input required value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} /></label><label className="form-field"><span>Owner email</span><input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label className="form-field"><span>Password</span><input required minLength={12} type="password" value={password} onChange={(event) => setPassword(event.target.value)} /><small className="sub">At least 12 characters.</small></label>{error && <div className="delta down">{error}</div>}<button className="btn btn-primary" type="submit">Create owner account</button></form></div></main>; }
+
 function Login({ onLogin }: { onLogin: (token: string) => void }) { const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState(""); const submit = async (event: FormEvent) => { event.preventDefault(); setError(""); const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ username: email, password }) }); if (!response.ok) { setError("Sign-in failed. Check your email and password."); return; } onLogin((await response.json()).access_token); }; return <main className="main login-main"><div className="panel"><div className="page-head"><div><h1 className="page-title">Sign in to TenantToolbox</h1><div className="page-subtitle">Manage your Microsoft 365 client tenants securely</div></div></div><form onSubmit={submit}><label className="form-field"><span>Email</span><input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label className="form-field"><span>Password</span><input required type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error && <div className="delta down">{error}</div>}<button className="btn btn-primary" type="submit">Sign in</button></form></div></main>; }
 
 function Dashboard({ token, tenants, apiStatus, onNavigate }: { token: string; tenants: Tenant[]; apiStatus: string; onNavigate: (view: string) => void }) {
