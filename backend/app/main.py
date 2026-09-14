@@ -710,7 +710,7 @@ def microsoft_start(client_id: str | None = Query(default=None), user: StaffUser
     if not settings.entra_client_id:
         raise HTTPException(status_code=503, detail="ENTRA_CLIENT_ID is not configured")
     state = create_oauth_state(user.id, client_id=client_id)
-    params = {"client_id": settings.entra_client_id, "response_type": "code", "redirect_uri": settings.entra_redirect_uri, "response_mode": "query", "scope": "openid profile offline_access User.Read Organization.Read.All", "state": state}
+    params = {"client_id": settings.entra_client_id, "response_type": "code", "redirect_uri": settings.entra_redirect_uri, "response_mode": "query", "scope": "openid profile offline_access User.Read User.Read.All Directory.Read.All GroupMember.Read.All UserAuthenticationMethod.Read.All Organization.Read.All", "state": state}
     return {"authorization_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" + urlencode(params)}
 
 
@@ -784,7 +784,7 @@ def reconnect_tenant(tenant_id: str, user: StaffUser = Depends(require_permissio
     if not settings.entra_client_id:
         raise HTTPException(status_code=503, detail="ENTRA_CLIENT_ID is not configured")
     state = create_oauth_state(user.id, tenant.id, tenant.client_id)
-    params = {"client_id": settings.entra_client_id, "response_type": "code", "redirect_uri": settings.entra_redirect_uri, "response_mode": "query", "scope": "openid profile offline_access User.Read Organization.Read.All", "state": state}
+    params = {"client_id": settings.entra_client_id, "response_type": "code", "redirect_uri": settings.entra_redirect_uri, "response_mode": "query", "scope": "openid profile offline_access User.Read User.Read.All Directory.Read.All GroupMember.Read.All UserAuthenticationMethod.Read.All Organization.Read.All", "state": state}
     return {"authorization_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" + urlencode(params), "tenant_id": tenant.id}
 
 
@@ -804,7 +804,7 @@ def microsoft_callback(code: str | None = Query(default=None), state: str | None
         raise HTTPException(status_code=400, detail=error or "Microsoft authorization was not completed")
     if not settings.entra_client_id or not settings.entra_client_secret:
         raise HTTPException(status_code=503, detail="Microsoft OAuth is not configured")
-    token_response = httpx.post("https://login.microsoftonline.com/common/oauth2/v2.0/token", data={"client_id": settings.entra_client_id, "client_secret": settings.entra_client_secret, "code": code, "redirect_uri": settings.entra_redirect_uri, "grant_type": "authorization_code", "scope": "openid profile offline_access User.Read Organization.Read.All"}, timeout=15)
+    token_response = httpx.post("https://login.microsoftonline.com/common/oauth2/v2.0/token", data={"client_id": settings.entra_client_id, "client_secret": settings.entra_client_secret, "code": code, "redirect_uri": settings.entra_redirect_uri, "grant_type": "authorization_code", "scope": "openid profile offline_access User.Read User.Read.All Directory.Read.All GroupMember.Read.All UserAuthenticationMethod.Read.All Organization.Read.All"}, timeout=15)
     if token_response.is_error:
         try:
             error_payload = token_response.json()

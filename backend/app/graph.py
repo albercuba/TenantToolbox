@@ -37,7 +37,7 @@ class GraphClient:
                 "client_secret": settings.entra_client_secret,
                 "grant_type": "refresh_token",
                 "refresh_token": decrypt_credential(self.credential.encrypted_refresh_token),
-                "scope": "openid profile offline_access User.Read Organization.Read.All",
+                "scope": "openid profile offline_access User.Read User.Read.All Directory.Read.All GroupMember.Read.All UserAuthenticationMethod.Read.All Organization.Read.All",
             },
             timeout=15,
         )

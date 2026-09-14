@@ -52,7 +52,7 @@ permissions** and add the permissions required by the features you will use:
 | Secure Score | `SecurityEvents.Read.All` |
 | Conditional Access baseline deployment | `Policy.Read.All`, `Policy.ReadWrite.ConditionalAccess` |
 | Security alerts and risky sign-ins | `SecurityAlert.Read.All`, `AuditLog.Read.All`, `IdentityRiskEvent.Read.All` |
-| User lifecycle actions | `User.ReadWrite.All`, `Directory.ReadWrite.All` |
+| User directory details (departments, groups, MFA methods) | `GroupMember.Read.All`, `UserAuthenticationMethod.Read.All` |\n| User lifecycle actions | `User.ReadWrite.All`, `Directory.ReadWrite.All` |
 | Intune inventory/actions | `DeviceManagementManagedDevices.ReadWrite.All` |
 | OAuth app discovery | `DelegatedPermissionGrant.Read.All`, `Application.Read.All` |
 
