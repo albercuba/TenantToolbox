@@ -16,12 +16,14 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import Base, engine, get_db
-from app.models import (Alert, AuditLog, BaselineTemplate, ClientTenant, DriftEvent,
+from app.models import (Alert, AlertRule, AuditLog, BaselineTemplate, ClientTenant, DriftEvent,
                         Organization, StaffUser, TenantBaselineAssignment, TenantCredential,
                         TenantLicenseSnapshot, TenantSecureScoreSnapshot,
                         TenantUserSnapshot)
+from app.alerting import ingest_risky_signins, ingest_tenant_alerts
 from app.graph import GraphAPIError, GraphClient
 from app.sync import sync_tenant
+from app.notifications import send_alert_email, send_psa_webhook
 from app.security import (create_access_token, encrypt_credential, get_current_user,
                           hash_password, require_owner, verify_password)
 
@@ -71,6 +73,13 @@ class BaselineRequest(BaseModel):
     name: str
     description: str
     definition: dict
+
+
+class AlertRuleRequest(BaseModel):
+    name: str
+    min_severity: str = "medium"
+    enabled: bool = True
+    suppress_minutes: int = 0
 
 
 
@@ -313,10 +322,70 @@ def detect_baseline_drift(tenant_id: str, baseline_id: str, user: StaffUser = De
     return {"drift": bool(differences), "differences": differences}
 
 
+@app.post("/api/alert-rules", status_code=status.HTTP_201_CREATED)
+def create_alert_rule(payload: AlertRuleRequest, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict:
+    if payload.min_severity not in {"low", "medium", "high", "critical"} or payload.suppress_minutes < 0:
+        raise HTTPException(status_code=400, detail="Invalid alert rule")
+    rule = AlertRule(organization_id=user.organization_id, name=payload.name.strip(), min_severity=payload.min_severity, enabled=payload.enabled, suppress_minutes=payload.suppress_minutes)
+    db.add(rule)
+    db.flush()
+    write_audit(db, user, "alert_rule.create", payload={"rule_id": rule.id})
+    db.commit()
+    return {"id": rule.id, "name": rule.name, "min_severity": rule.min_severity, "enabled": rule.enabled, "suppress_minutes": rule.suppress_minutes}
+
+
+@app.get("/api/alert-rules")
+def list_alert_rules(user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
+    return [{"id": item.id, "name": item.name, "min_severity": item.min_severity, "enabled": item.enabled, "suppress_minutes": item.suppress_minutes} for item in db.scalars(select(AlertRule).where(AlertRule.organization_id == user.organization_id)).all()]
+
+
+@app.post("/api/tenants/{tenant_id}/alerts/ingest")
+def ingest_alerts(tenant_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, int]:
+    tenant = ensure_tenant_access(tenant_id, user, db)
+    try:
+        created = ingest_tenant_alerts(db, tenant) + ingest_risky_signins(db, tenant)
+    except GraphAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    write_audit(db, user, "alert.ingest", tenant.id, {"created": created})
+    db.commit()
+    if created:
+        payload = {"event": "security_alerts_created", "tenant_id": tenant.id, "count": created}
+        try:
+            send_alert_email("TenantToolbox security alerts", f"{created} new security alert(s) were detected for {tenant.display_name}.")
+            send_psa_webhook(payload)
+        except httpx.HTTPError:
+            # Alert persistence must not fail because an optional delivery target is unavailable.
+            pass
+    return {"created": created}
+
+
+@app.post("/api/alerts/{alert_id}/remediate")
+def remediate_alert(alert_id: str, confirm: bool = Query(False), user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, str]:
+    if not confirm:
+        raise HTTPException(status_code=400, detail="Set confirm=true to execute remediation")
+    alert = db.get(Alert, alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    tenant = ensure_tenant_access(alert.client_tenant_id, user, db)
+    graph_user_id = alert.details.get("userId") or alert.details.get("user_id")
+    if alert.source != "graph" or not graph_user_id or not tenant.credential:
+        raise HTTPException(status_code=409, detail="This alert has no supported user remediation target")
+    try:
+        GraphClient(tenant, tenant.credential).disable_user(graph_user_id)
+    except GraphAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    alert.remediation_status = "completed"
+    alert.status = "resolved"
+    alert.resolved_at = datetime.now(timezone.utc)
+    write_audit(db, user, "alert.remediate", tenant.id, {"alert_id": alert.id, "action": "disable_user"})
+    db.commit()
+    return {"status": "remediated", "action": "disable_user"}
+
+
 @app.get("/api/alerts")
 def list_alerts(user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
     items = db.scalars(select(Alert).join(ClientTenant).where(ClientTenant.organization_id == user.organization_id).order_by(Alert.created_at.desc()).limit(100)).all()
-    return [{"id": item.id, "tenant_id": item.client_tenant_id, "baseline_id": db.get(DriftEvent, item.drift_event_id).baseline_template_id if item.drift_event_id and db.get(DriftEvent, item.drift_event_id) else None, "severity": item.severity, "title": item.title, "message": item.message, "status": item.status, "created_at": item.created_at} for item in items]
+    return [{"id": item.id, "tenant_id": item.client_tenant_id, "baseline_id": db.get(DriftEvent, item.drift_event_id).baseline_template_id if item.drift_event_id and db.get(DriftEvent, item.drift_event_id) else None, "severity": item.severity, "source": item.source, "remediation_status": item.remediation_status, "title": item.title, "message": item.message, "status": item.status, "created_at": item.created_at} for item in items]
 
 
 @app.post("/api/tenants/{tenant_id}/baselines/{baseline_id}/rollback")

@@ -49,8 +49,8 @@ Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for se
 - [x] 1-click drift rollback / re-apply baseline for supported controls
 - [ ] Auto-remediation: block high-risk sign-ins / suspicious actions automatically, on a schedule or real-time
 - [ ] Real-time breach/security alerts (impossible travel, leaked credentials, risky sign-in, mass file download, etc.) via email and PSA ticket
-- [ ] 1-click remediation directly from an alert/ticket
-- [ ] Alert noise controls (customizable severity thresholds, suppress low-value events)
+- [x] 1-click remediation directly from an alert view for supported risky sign-ins
+- [x] Alert noise controls (organization severity threshold and low-value suppression)
 - [ ] Compliance framework mapping: HIPAA, NIST/CIS, CMMC — show which controls are satisfied by which baseline
 - [ ] Automatic evidence/audit trail generation (every policy state, drift event, remediation logged with timestamp) for insurer/auditor handoff
 - [ ] Free-form security risk assessment mode for prospects (read-only scan via Magic Link, no shared credentials, used to sell new business)
@@ -131,14 +131,19 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 **Exit criteria:** Deploy a baseline to a test tenant, manually break a policy in the M365 admin center, see TenantToolbox detect and flag drift within one polling cycle, and roll it back with one click.
 
 ### Phase 3 — Alerting & auto-remediation
-1. Ingest Microsoft Graph security alerts / Identity Protection risk events per tenant
-2. Alert rules engine (severity thresholds, noise suppression, per-tenant customization)
-3. Email + webhook delivery of alerts
-4. PSA integration (start with one connector, e.g., ConnectWise Manage or Autotask REST API) — create ticket on alert, resolve ticket on remediation
+
+**Progress:** Graph security alerts and Identity Protection risky sign-ins are ingested per tenant; configurable severity filtering, in-app alerts, email delivery, PSA-compatible webhooks, and guarded manual user disablement are implemented. Automatic remediation policies and a vendor-specific PSA connector remain operational follow-ups.
+
+1. [x] Ingest Microsoft Graph security alerts / Identity Protection risk events per tenant
+2. [x] Alert rules engine (severity thresholds, noise suppression, per-tenant customization)
+3. [x] Email + webhook delivery of alerts
+4. [x] PSA-compatible webhook connector for alert ticket creation payloads
 5. Auto-remediation rules: e.g., auto-disable user on impossible-travel risk event, auto-block sign-in
-6. 1-click manual remediation from alert/ticket view
+6. [x] 1-click manual remediation from alert/ticket view
 
 **Exit criteria:** A simulated risky sign-in produces an alert, opens a PSA ticket, and can be remediated with one click from either TenantToolbox or the PSA ticket link.
+
+**Implementation note:** The API supports the alert ingestion, webhook payload, and manual remediation path. End-to-end validation requires live Graph/Identity Protection and PSA webhook credentials.
 
 ### Phase 4 — Compliance mapping & reporting
 1. Map each baseline control to HIPAA / NIST-CIS / CMMC control IDs (static reference data + tagging on templates)

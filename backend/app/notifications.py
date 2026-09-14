@@ -1,6 +1,8 @@
 import smtplib
 from email.message import EmailMessage
 
+import httpx
+
 from app.config import settings
 
 
@@ -18,4 +20,12 @@ def send_alert_email(subject: str, body: str) -> bool:
         if settings.smtp_username and settings.smtp_password:
             smtp.login(settings.smtp_username, settings.smtp_password)
         smtp.send_message(message)
+    return True
+
+
+def send_psa_webhook(payload: dict) -> bool:
+    if not settings.psa_webhook_url:
+        return False
+    response = httpx.post(settings.psa_webhook_url, json=payload, timeout=15)
+    response.raise_for_status()
     return True

@@ -140,3 +140,19 @@ class Alert(Base):
     status: Mapped[str] = mapped_column(String(20), default="open")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source: Mapped[str] = mapped_column(String(50), default="drift")
+    external_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    psa_ticket_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    remediation_status: Mapped[str] = mapped_column(String(30), default="not_requested")
+
+
+class AlertRule(Base):
+    __tablename__ = "alert_rule"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    min_severity: Mapped[str] = mapped_column(String(20), default="medium")
+    enabled: Mapped[bool] = mapped_column(default=True)
+    suppress_minutes: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

@@ -114,7 +114,16 @@ class GraphClient:
             applied.append(name)
         return {"applied": applied, "unsupported": unsupported}
 
-    def baseline_differences(self, definition: dict) -> list[dict]:
+    def security_alerts(self) -> list[dict]:
+        return self.all_pages("security/alerts_v2", {"$top": "100"})
+
+    def risky_sign_ins(self) -> list[dict]:
+        return self.all_pages("auditLogs/signIns", {"$top": "100", "$orderby": "createdDateTime desc"})
+
+    def disable_user(self, user_id: str) -> None:
+        self._request("PATCH", f"users/{user_id}", {"accountEnabled": False})
+
+    def baseline_differences(self, definition: dict):
         policies = {item.get("displayName"): item for item in self.conditional_access_policies()}
         differences = []
         for control in definition.get("controls", []):

@@ -19,6 +19,8 @@ class Settings:
     smtp_password: str | None = os.getenv("SMTP_PASSWORD")
     smtp_from: str | None = os.getenv("SMTP_FROM")
     alert_email: str | None = os.getenv("ALERT_EMAIL")
+    psa_webhook_url: str | None = os.getenv("PSA_WEBHOOK_URL")
+    auto_remediation_enabled: bool = os.getenv("AUTO_REMEDIATION_ENABLED", "false").lower() == "true"
 
 
 settings = Settings()
