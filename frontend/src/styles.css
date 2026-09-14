@@ -19,8 +19,8 @@
   --fp-border:      #d1d8dd;
   --fp-border-soft: #e8ebed;
 
-  --fp-text:        #1f272e;
-  --fp-text-muted:  #6b7785;
+  --fp-text:        #344054;
+  --fp-text-muted:  #667085;
   --fp-text-faint:  #8d99a6;
 
   --fp-green:  #29a745;
@@ -306,14 +306,14 @@ ul{ list-style:none; margin:0; padding:0; }
 }
 table.list-table{ width:100%; border-collapse:collapse; }
 .list-table th{
-  text-align:left; font-size:11.5px; font-weight:600; color:var(--fp-text-faint);
-  text-transform:uppercase; letter-spacing:.02em;
+  text-align:left; font-size:11.5px; font-weight:600; color:var(--fp-text-muted);
+  letter-spacing:.02em;
   padding:10px 12px; border-bottom:1px solid var(--fp-border-soft);
   background:#fbfcfc;
 }
 .list-table td{
   padding:11px 12px; border-bottom:1px solid var(--fp-border-soft);
-  font-size:12.5px; vertical-align:middle;
+  font-size:12.5px; vertical-align:middle; color:var(--fp-text-muted);
 }
 .list-table tr:last-child td{ border-bottom:none; }
 .list-table tbody tr:hover{ background:var(--fp-primary-tint); cursor:pointer; }

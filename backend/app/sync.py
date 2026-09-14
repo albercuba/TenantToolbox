@@ -17,6 +17,20 @@ from app.models import (
 )
 
 
+LICENSE_DISPLAY_NAMES = {
+    "O365_BUSINESS_PREMIUM": "Microsoft 365 Business Premium",
+    "O365_BUSINESS_ESSENTIALS": "Microsoft 365 Business Basic",
+    "SMB_BUSINESS_PREMIUM": "Microsoft 365 Business Premium",
+    "SMB_BUSINESS": "Microsoft 365 Business Basic",
+    "SPE_E3": "Microsoft 365 E3",
+    "SPE_E5": "Microsoft 365 E5",
+    "ENTERPRISEPACK": "Office 365 E3",
+    "ENTERPRISEPREMIUM": "Office 365 E5",
+    "INTUNE_A": "Intune",
+    "POWER_BI_STANDARD": "Power BI (free)",
+}
+
+
 def sync_tenant(db: Session, tenant: ClientTenant) -> dict[str, int | str]:
     if not tenant.credential:
         raise GraphAPIError("Tenant has no delegated credential")
@@ -42,7 +56,7 @@ def sync_tenant(db: Session, tenant: ClientTenant) -> dict[str, int | str]:
 
     db.query(TenantUserSnapshot).filter_by(client_tenant_id=tenant.id).delete()
     db.query(TenantLicenseSnapshot).filter_by(client_tenant_id=tenant.id).delete()
-    license_names = {item.get("skuId"): item.get("skuPartNumber") for item in licenses if item.get("skuId") and item.get("skuPartNumber")}
+    license_names = {item.get("skuId"): LICENSE_DISPLAY_NAMES.get(item.get("skuPartNumber", ""), item.get("skuPartNumber")) for item in licenses if item.get("skuId") and item.get("skuPartNumber")}
     for user in users:
         graph_id = user.get("id", "")
         try:
