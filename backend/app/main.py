@@ -19,7 +19,7 @@ from app.config import settings
 from app.db import Base, engine, get_db
 from app.models import (Alert, AlertRule, AuditLog, BaselineTemplate, ClientTenant, ComplianceControl, DriftEvent,
                         Report, ReportSchedule, StaffUser, TenantBaselineAssignment, TenantCredential,
-                        TenantLicenseSnapshot, TenantSecureScoreSnapshot,
+                        TenantDeviceSnapshot, TenantLicenseSnapshot, TenantSecureScoreSnapshot,
                         TenantUserSnapshot)
 from app.alerting import ingest_risky_signins, ingest_tenant_alerts
 from app.graph import GraphAPIError, GraphClient
@@ -123,6 +123,46 @@ def write_audit(db: Session, user: StaffUser, action: str, tenant_id: str | None
 def audit_log(user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
     entries = db.scalars(select(AuditLog).where(AuditLog.organization_id == user.organization_id).order_by(AuditLog.created_at.desc()).limit(100)).all()
     return [{"id": item.id, "action": item.action, "tenant_id": item.client_tenant_id, "actor_id": item.actor_id, "payload": item.payload, "created_at": item.created_at} for item in entries]
+
+@app.post("/api/tenants/{tenant_id}/devices/sync")
+def sync_devices(tenant_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, int]:
+    tenant = ensure_tenant_access(tenant_id, user, db)
+    if not tenant.credential:
+        raise HTTPException(status_code=409, detail="Tenant has no delegated credential")
+    try:
+        devices = GraphClient(tenant, tenant.credential).devices()
+    except GraphAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    now = datetime.now(timezone.utc)
+    db.query(TenantDeviceSnapshot).filter_by(client_tenant_id=tenant.id).delete()
+    for device in devices:
+        db.add(TenantDeviceSnapshot(client_tenant_id=tenant.id, graph_id=device.get("id", ""), device_name=device.get("deviceName", ""), operating_system=device.get("operatingSystem"), compliance_state=device.get("complianceState"), last_sync_at=datetime.fromisoformat(device["lastSyncDateTime"].replace("Z", "+00:00")) if device.get("lastSyncDateTime") else None, synced_at=now))
+    write_audit(db, user, "device.sync", tenant.id, {"count": len(devices)})
+    db.commit()
+    return {"synced": len(devices)}
+
+
+@app.get("/api/tenants/{tenant_id}/devices")
+def list_devices(tenant_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
+    ensure_tenant_access(tenant_id, user, db)
+    return [{"id": item.graph_id, "device_name": item.device_name, "operating_system": item.operating_system, "compliance_state": item.compliance_state, "last_sync_at": item.last_sync_at} for item in db.scalars(select(TenantDeviceSnapshot).where(TenantDeviceSnapshot.client_tenant_id == tenant_id).order_by(TenantDeviceSnapshot.device_name)).all()]
+
+
+@app.post("/api/tenants/{tenant_id}/devices/{device_id}/action")
+def device_action(tenant_id: str, device_id: str, action: str = Query(...), confirm: bool = Query(False), user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, str]:
+    if not confirm:
+        raise HTTPException(status_code=400, detail="Set confirm=true to execute this action")
+    tenant = ensure_tenant_access(tenant_id, user, db)
+    if not tenant.credential:
+        raise HTTPException(status_code=409, detail="Tenant has no delegated credential")
+    try:
+        GraphClient(tenant, tenant.credential).device_action(device_id, action)
+    except GraphAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    write_audit(db, user, f"device.{action}", tenant.id, {"device_id": device_id})
+    db.commit()
+    return {"status": "completed", "action": action}
+
 
 @app.get("/api/users/search")
 def search_users(query: str = Query(min_length=2), user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:

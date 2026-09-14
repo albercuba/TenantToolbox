@@ -136,6 +136,14 @@ class GraphClient:
         payload = {"addLicenses": [{"skuId": sku_id, "disabledPlans": []}], "removeLicenses": []} if assign else {"addLicenses": [], "removeLicenses": [sku_id]}
         self._request("POST", f"users/{user_id}/assignLicense", payload)
 
+    def devices(self) -> list[dict]:
+        return self.all_pages("deviceManagement/managedDevices", {"$select": "id,deviceName,operatingSystem,complianceState,lastSyncDateTime"})
+
+    def device_action(self, device_id: str, action: str) -> None:
+        if action not in {"sync", "retire", "wipe"}:
+            raise GraphAPIError("Unsupported device action")
+        self._request("POST", f"deviceManagement/managedDevices/{device_id}/{action}")
+
     def baseline_differences(self, definition: dict):
         policies = {item.get("displayName"): item for item in self.conditional_access_policies()}
         differences = []

@@ -65,7 +65,8 @@ Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for se
 
 ### 3.4 Intune Autopilot (device management)
 - [ ] Baseline device compliance policy templates, deployable per tenant
-- [ ] Device compliance dashboard across tenants (compliant / non-compliant / stale check-in)
+- [x] Device compliance dashboard API across tenants (compliant / non-compliant / stale check-in)
+- [x] Confirmed device actions: retire, wipe, sync
 - [ ] Bulk device actions (retire, wipe, sync)
 
 ### 3.5 Discover (SaaS / Shadow IT)
@@ -173,9 +174,12 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 **Exit criteria:** Fully offboard a test user across mailbox conversion, license removal, and account disable in one guided flow, with every step logged.
 
 ### Phase 6 — Intune Autopilot (device management)
-1. Device inventory sync per tenant (compliant/non-compliant/stale)
+
+**Progress:** Intune managed-device inventory snapshots and confirmed, audited sync/retire/wipe actions are implemented. Compliance policy template deployment remains open.
+
+1. [x] Device inventory sync per tenant (compliant/non-compliant/stale)
 2. Baseline compliance policy templates, deployable per tenant
-3. Bulk device actions: retire, wipe, sync
+3. [x] Bulk device actions: retire, wipe, sync
 
 **Exit criteria:** Deploy a compliance policy template to a tenant and see device compliance status reflected in the dashboard.
 

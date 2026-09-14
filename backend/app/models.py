@@ -191,3 +191,15 @@ class ReportSchedule(Base):
     enabled: Mapped[bool] = mapped_column(default=True)
     next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class TenantDeviceSnapshot(Base):
+    __tablename__ = "tenant_device_snapshot"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    client_tenant_id: Mapped[str] = mapped_column(ForeignKey("client_tenant.id", ondelete="CASCADE"), index=True)
+    graph_id: Mapped[str] = mapped_column(String(100))
+    device_name: Mapped[str] = mapped_column(String(200))
+    operating_system: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    compliance_state: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
