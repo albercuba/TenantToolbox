@@ -144,9 +144,11 @@ ul{ list-style:none; margin:0; padding:0; }
 }
 .sidebar-item{
   display:flex; align-items:center; gap:10px;
-  padding:7px 10px; border-radius:var(--fp-radius);
-  color:var(--fp-text-muted); font-size:13px; font-weight:500;
-  cursor:pointer; white-space:nowrap;
+  width:100%; min-height:32px; padding:7px 10px;
+  border:0; border-radius:var(--fp-radius);
+  background:transparent; color:var(--fp-text-muted);
+  font:inherit; font-size:13px; font-weight:500;
+  text-align:left; cursor:pointer; white-space:nowrap;
 }
 .sidebar-item svg{ flex:none; color:var(--fp-text-faint); }
 .sidebar-item:hover{ background:var(--fp-grey-tint); color:var(--fp-text); }
