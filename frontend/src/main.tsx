@@ -24,8 +24,10 @@ function App() {
   const [selectedTenantId, setSelectedTenantId] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
+  const [setupError, setSetupError] = useState("");
+  const [setupCheckAttempt, setSetupCheckAttempt] = useState(0);
 
-  useEffect(() => { let cancelled = false; const checkSetup = async () => { try { const response = await fetch("/api/setup/status", { cache: "no-store" }); if (!response.ok) throw new Error("Setup status unavailable"); const result: { setup_required: boolean } = await response.json(); if (!cancelled) setSetupRequired(result.setup_required); } catch { if (!cancelled) window.setTimeout(checkSetup, 1000); } }; void checkSetup(); return () => { cancelled = true; }; }, []);
+  useEffect(() => { let cancelled = false; const checkSetup = async () => { try { const response = await fetch("/api/setup/status", { cache: "no-store" }); if (!response.ok) throw new Error(`API returned HTTP ${response.status}`); const result: { setup_required: boolean } = await response.json(); if (!cancelled) { setSetupRequired(result.setup_required); setSetupError(""); } } catch (error) { if (!cancelled) setSetupError(error instanceof Error ? error.message : "The API is unavailable."); } }; void checkSetup(); return () => { cancelled = true; }; }, [setupCheckAttempt]);
   useEffect(() => { fetch("/api/health").then((response) => response.ok ? setApiStatus("API healthy") : Promise.reject()).catch(() => setApiStatus("API unavailable")); }, []);
   useEffect(() => {
     if (!token) return;
@@ -42,7 +44,7 @@ function App() {
       .catch(() => setManagedTenants([]));
   }, [token]);
   const navigate = (view: string) => { setActiveView(view); setMenuOpen(false); if (view === "local-users" || view === "groups") setSettingsOpen(true); };
-  if (setupRequired === null) return <main className="main login-main"><div className="panel"><h1 className="page-title">Checking first-time setup…</h1></div></main>;
+  if (setupRequired === null) return <main className="main login-main"><div className="panel"><h1 className="page-title">Checking first-time setup…</h1>{setupError && <><div className="notice">Could not reach the backend API ({setupError}). Confirm the Docker services are running and that the root `.env` contains `JWT_SECRET` and `CREDENTIAL_ENCRYPTION_KEY`.</div><button className="btn btn-primary" onClick={() => { setSetupError(""); setSetupCheckAttempt((attempt) => attempt + 1); }}>Retry</button></>}</div></main>;
   if (setupRequired) return <Setup onComplete={(accessToken) => { localStorage.setItem("tenanttoolbox_token", accessToken); setToken(accessToken); setSetupRequired(false); }} />;
   if (!token) return <Login onLogin={(accessToken) => { localStorage.setItem("tenanttoolbox_token", accessToken); setToken(accessToken); }} />;
   const selectedTenant = managedTenants.find((tenant) => tenant.id === selectedTenantId);
