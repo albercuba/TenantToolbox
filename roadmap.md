@@ -97,7 +97,7 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 ### Phase 0 — Foundations (infra & auth skeleton)
 
 **Progress:** Application foundations are complete. Live OAuth exit validation requires operator-provided Entra credentials, admin consent, and a real tenant.
-1. [x] Repo scaffold: monorepo with `/backend`, `/frontend`, `/infra` (docker-compose, migrations)
+1. [x] Repo scaffold: monorepo with `/backend`, `/frontend`, `/infra` (docker-compose, migrations), including container-safe frontend API proxying
 2. [x] Docker Compose: app server, Postgres, Redis, worker, frontend (dev + prod compose files)
 3. [x] MSP staff auth: first-time setup wizard automatically opens on a new deployment and waits for API readiness; local email/password + session/JWT; basic RBAC (owner/tech roles)
 4. [x] Azure AD app registration setup docs + admin-consent flow (single tenant first, no GDAP yet)
