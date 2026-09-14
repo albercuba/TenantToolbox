@@ -123,6 +123,19 @@ class GraphClient:
     def disable_user(self, user_id: str) -> None:
         self._request("PATCH", f"users/{user_id}", {"accountEnabled": False})
 
+    def set_user_enabled(self, user_id: str, enabled: bool) -> None:
+        self._request("PATCH", f"users/{user_id}", {"accountEnabled": enabled})
+
+    def revoke_sessions(self, user_id: str) -> None:
+        self._request("POST", f"users/{user_id}/revokeSignInSessions")
+
+    def reset_password(self, user_id: str, password: str) -> None:
+        self._request("PATCH", f"users/{user_id}", {"passwordProfile": {"password": password, "forceChangePasswordNextSignIn": True}})
+
+    def update_license(self, user_id: str, sku_id: str, assign: bool) -> None:
+        payload = {"addLicenses": [{"skuId": sku_id, "disabledPlans": []}], "removeLicenses": []} if assign else {"addLicenses": [], "removeLicenses": [sku_id]}
+        self._request("POST", f"users/{user_id}/assignLicense", payload)
+
     def baseline_differences(self, definition: dict):
         policies = {item.get("displayName"): item for item in self.conditional_access_policies()}
         differences = []

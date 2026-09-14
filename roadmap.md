@@ -57,8 +57,8 @@ Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for se
 - [ ] Free-form security risk assessment mode for prospects (read-only scan via Magic Link, no shared credentials, used to sell new business)
 
 ### 3.3 Engage Autopilot (user/identity management)
-- [ ] Unified user view across tenants (search a user, see all tenant memberships)
-- [ ] Bulk actions: reset password, block/unblock user, assign/remove license, force MFA re-registration
+- [x] Unified user view across tenants (search a user, see all tenant memberships)
+- [x] Confirmed bulk actions: reset password, block/unblock user, assign/remove license, revoke sessions
 - [ ] Full offboarding workflow: revoke sessions, remove licenses, convert to shared mailbox, remove from groups/Teams, disable account — as one guided action
 - [ ] User groups (MSP-defined, not just AD groups) for bulk targeting during rollout/offboarding
 - [ ] Distribution list management
@@ -161,8 +161,11 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 **Exit criteria:** Generate a branded PDF report for a tenant showing posture score, events, and policy status, and schedule it to auto-send monthly.
 
 ### Phase 5 — Engage Autopilot (user/identity lifecycle)
-1. Cross-tenant user search
-2. Bulk user actions (reset password, block, license assign/remove) via Graph API, with confirmation + audit log
+
+**Progress:** Cross-tenant snapshot search and confirmed, audited Graph user actions are implemented. The supported offboarding API revokes sessions and disables accounts; mailbox conversion, license removal orchestration, group cleanup, user groups, and distribution lists remain open.
+
+1. [x] Cross-tenant user search
+2. [x] Bulk user actions (reset password, block, license assign/remove) via Graph API, with confirmation + audit log
 3. Guided offboarding workflow (multi-step: revoke sessions → remove licenses → convert mailbox → remove from groups → disable)
 4. MSP-defined user groups for bulk targeting
 5. Distribution list CRUD

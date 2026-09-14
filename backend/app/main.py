@@ -105,6 +105,15 @@ class ReportScheduleRequest(BaseModel):
     recipient_email: EmailStr
 
 
+class UserActionRequest(BaseModel):
+    tenant_id: str
+    user_id: str
+    action: str
+    confirm: bool = False
+    password: str | None = None
+    sku_id: str | None = None
+
+
 
 def write_audit(db: Session, user: StaffUser, action: str, tenant_id: str | None = None, payload: dict | None = None) -> None:
     db.add(AuditLog(organization_id=user.organization_id, actor_id=user.id, client_tenant_id=tenant_id, action=action, target_type="client_tenant" if tenant_id else None, target_id=tenant_id, payload=payload or {}))
@@ -114,6 +123,58 @@ def write_audit(db: Session, user: StaffUser, action: str, tenant_id: str | None
 def audit_log(user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
     entries = db.scalars(select(AuditLog).where(AuditLog.organization_id == user.organization_id).order_by(AuditLog.created_at.desc()).limit(100)).all()
     return [{"id": item.id, "action": item.action, "tenant_id": item.client_tenant_id, "actor_id": item.actor_id, "payload": item.payload, "created_at": item.created_at} for item in entries]
+
+@app.get("/api/users/search")
+def search_users(query: str = Query(min_length=2), user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
+    pattern = f"%{query.lower()}%"
+    rows = db.execute(select(TenantUserSnapshot, ClientTenant).join(ClientTenant, TenantUserSnapshot.client_tenant_id == ClientTenant.id).where(ClientTenant.organization_id == user.organization_id, (TenantUserSnapshot.display_name.ilike(pattern) | TenantUserSnapshot.user_principal_name.ilike(pattern)))).all()
+    return [{"tenant_id": tenant.id, "tenant_name": tenant.display_name, "user_id": item.graph_id, "display_name": item.display_name, "user_principal_name": item.user_principal_name, "account_enabled": item.account_enabled} for item, tenant in rows]
+
+
+@app.post("/api/users/action")
+def user_action(payload: UserActionRequest, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, str]:
+    if not payload.confirm:
+        raise HTTPException(status_code=400, detail="Set confirm=true to execute this action")
+    tenant = ensure_tenant_access(payload.tenant_id, user, db)
+    if not tenant.credential or payload.action not in {"block", "unblock", "reset_password", "assign_license", "remove_license", "revoke_sessions"}:
+        raise HTTPException(status_code=409, detail="Unsupported user action or unavailable tenant credential")
+    if payload.action == "reset_password" and (not payload.password or len(payload.password) < 12):
+        raise HTTPException(status_code=400, detail="A password of at least 12 characters is required")
+    if payload.action in {"assign_license", "remove_license"} and not payload.sku_id:
+        raise HTTPException(status_code=400, detail="sku_id is required for license actions")
+    client = GraphClient(tenant, tenant.credential)
+    try:
+        if payload.action == "block": client.set_user_enabled(payload.user_id, False)
+        elif payload.action == "unblock": client.set_user_enabled(payload.user_id, True)
+        elif payload.action == "reset_password": client.reset_password(payload.user_id, payload.password or "")
+        elif payload.action == "assign_license": client.update_license(payload.user_id, payload.sku_id or "", True)
+        elif payload.action == "remove_license": client.update_license(payload.user_id, payload.sku_id or "", False)
+        else: client.revoke_sessions(payload.user_id)
+    except GraphAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    write_audit(db, user, f"user.{payload.action}", tenant.id, {"user_id": payload.user_id})
+    db.commit()
+    return {"status": "completed", "action": payload.action}
+
+
+@app.post("/api/users/offboard")
+def offboard_user(payload: UserActionRequest, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, list[str]]:
+    if not payload.confirm:
+        raise HTTPException(status_code=400, detail="Set confirm=true to execute offboarding")
+    tenant = ensure_tenant_access(payload.tenant_id, user, db)
+    if not tenant.credential:
+        raise HTTPException(status_code=409, detail="Tenant has no delegated credential")
+    client = GraphClient(tenant, tenant.credential)
+    completed: list[str] = []
+    try:
+        client.revoke_sessions(payload.user_id); completed.append("revoke_sessions")
+        client.disable_user(payload.user_id); completed.append("disable_account")
+    except GraphAPIError as exc:
+        raise HTTPException(status_code=502, detail={"completed": completed, "error": str(exc)}) from exc
+    write_audit(db, user, "user.offboard", tenant.id, {"user_id": payload.user_id, "completed": completed})
+    db.commit()
+    return {"completed": completed, "remaining": ["remove_licenses", "convert_mailbox", "remove_groups"]}
+
 
 @app.get("/api/compliance/frameworks")
 def compliance_frameworks(user: StaffUser = Depends(get_current_user)) -> dict[str, int]:
