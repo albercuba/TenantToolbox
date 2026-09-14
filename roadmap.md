@@ -138,12 +138,12 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 2. [x] Alert rules engine (severity thresholds, noise suppression, per-tenant customization)
 3. [x] Email + webhook delivery of alerts
 4. [x] PSA-compatible webhook connector for alert ticket creation payloads
-5. Auto-remediation rules: e.g., auto-disable user on impossible-travel risk event, auto-block sign-in
+5. [x] Opt-in automatic remediation for high/critical Identity Protection events with a user target; automatic remediation remains disabled by default
 6. [x] 1-click manual remediation from alert/ticket view
 
 **Exit criteria:** A simulated risky sign-in produces an alert, opens a PSA ticket, and can be remediated with one click from either TenantToolbox or the PSA ticket link.
 
-**Implementation note:** The API supports the alert ingestion, webhook payload, and manual remediation path. End-to-end validation requires live Graph/Identity Protection and PSA webhook credentials.
+**Implementation note:** The API supports the alert ingestion, webhook payload, and manual remediation path. Offline integration tests and a live-validation runbook are included in `docs/phase3-live-validation.md`. End-to-end validation still requires live Graph/Identity Protection and PSA webhook credentials.
 
 ### Phase 4 — Compliance mapping & reporting
 1. Map each baseline control to HIPAA / NIST-CIS / CMMC control IDs (static reference data + tagging on templates)

@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.graph import GraphAPIError, GraphClient
 from app.models import Alert, AlertRule, ClientTenant
 
@@ -36,7 +37,8 @@ def ingest_tenant_alerts(db: Session, tenant: ClientTenant) -> int:
 def ingest_risky_signins(db: Session, tenant: ClientTenant) -> int:
     if not tenant.credential:
         raise GraphAPIError("Tenant has no delegated credential")
-    events = GraphClient(tenant, tenant.credential).risky_sign_ins()
+    client = GraphClient(tenant, tenant.credential)
+    events = client.risky_sign_ins()
     created = 0
     threshold = minimum_severity(db, tenant.organization_id)
     for event in events:
@@ -47,7 +49,16 @@ def ingest_risky_signins(db: Session, tenant: ClientTenant) -> int:
         if external_id and db.scalar(select(Alert).where(Alert.source == "identity_protection", Alert.external_id == external_id)):
             continue
         user = event.get("userPrincipalName") or event.get("userId") or "unknown user"
-        db.add(Alert(client_tenant_id=tenant.id, severity="high" if risk == "medium" else "critical", title="Risky sign-in detected", message=f"Identity Protection reported a {risk} risk sign-in for {user}.", source="identity_protection", external_id=external_id, details=event))
+        alert = Alert(client_tenant_id=tenant.id, severity="high" if risk == "medium" else "critical", title="Risky sign-in detected", message=f"Identity Protection reported a {risk} risk sign-in for {user}.", source="identity_protection", external_id=external_id, details=event)
+        if settings.auto_remediation_enabled and event.get("userId"):
+            try:
+                client.disable_user(event["userId"])
+                alert.remediation_status = "completed"
+                alert.status = "resolved"
+                alert.resolved_at = datetime.now(timezone.utc)
+            except GraphAPIError as exc:
+                alert.details = {**event, "remediation_error": str(exc)}
+        db.add(alert)
         created += 1
     db.commit()
     return created

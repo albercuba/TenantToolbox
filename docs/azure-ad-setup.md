@@ -10,6 +10,8 @@ Phase 0 uses a single multi-tenant Microsoft Entra application with delegated ad
    - `User.Read`
    - `Organization.Read.All`
    - `Policy.Read.All` and `Policy.ReadWrite.ConditionalAccess` for baseline drift/deployment
+   - `SecurityAlert.Read.All` and `AuditLog.Read.All` for Phase 3 security events
+   - `User.Read.All` and `User.ReadWrite.All` for supported user remediation
 5. Grant admin consent in the connected client tenant.
 6. Generate a connection URL from `GET /api/auth/microsoft/start` while logged in, or use the dashboard Connect tenant action when that UI is wired to the endpoint.
 
