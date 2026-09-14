@@ -1,22 +1,140 @@
 # Microsoft Entra ID setup
 
-TenantToolbox uses one multi-tenant Microsoft Entra application with delegated admin consent. Configure the application ID and secret once in the TenantToolbox deployment environment; do not add client-tenant IDs, passwords, or tokens to `.env`. Each client tenant is connected separately through the dashboard consent flow. GDAP and Partner Center import remain future integration work.
+TenantToolbox uses **one multi-tenant Microsoft Entra web application** for
+all client tenants. The application ID and secret identify the TenantToolbox
+backend. They are configured once; client tenant IDs and delegated tokens are
+not placed in `.env`.
 
-1. In **Microsoft Entra admin center → App registrations**, create a Web application.
-2. Add the redirect URI from `ENTRA_REDIRECT_URI` (the development default is `http://localhost:8000/api/auth/microsoft/callback`).
-3. Create a client secret and set the application-wide `ENTRA_CLIENT_ID` and `ENTRA_CLIENT_SECRET` in the backend environment. These are not per-customer credentials. Never commit these values.
-4. Add delegated Microsoft Graph permissions:
-   - `openid`, `profile`, `offline_access`
-   - `User.Read`
-   - `Organization.Read.All`
-   - `Policy.Read.All` and `Policy.ReadWrite.ConditionalAccess` for baseline drift/deployment
-   - `SecurityAlert.Read.All` and `AuditLog.Read.All` for Phase 3 security events
-   - `User.Read.All` and `User.ReadWrite.All` for supported user remediation
-5. Select **Accounts in any organizational directory** as the supported account type, then grant admin consent in each client tenant when it is connected.
-6. While logged in, use the dashboard **Connect tenant** action. Repeat this action for every client tenant; each consent callback stores that tenant's encrypted delegated token in PostgreSQL and associates it with the MSP organization.
+## 1. Create the application
 
-For Phase 2 deployment and drift operations, configure the optional SMTP variables in `.env` if email alert delivery is required. Without SMTP configuration, drift events remain available through the in-app alerts API.
+1. Open the [Microsoft Entra admin center](https://entra.microsoft.com).
+2. Go to **Identity → Applications → App registrations → New registration**.
+3. Use a name such as `TenantToolbox`.
+4. Under **Supported account types**, select:
+   `Accounts in any organizational directory (Any Microsoft Entra ID tenant - Multitenant)`.
+5. Under **Redirect URI**, select **Web** and add:
 
-The callback exchanges the authorization code, obtains the tenant ID from the token response, calls Microsoft Graph `/organization`, and stores only encrypted refresh/access tokens per connected tenant. The API never returns tokens to the frontend. Revoked consent can be repaired with the tenant reconnect action.
+   ```text
+   http://localhost:8000/api/auth/microsoft/callback
+   ```
 
-Phase 2 supports explicit Conditional Access policy deployment, drift detection, and rollback for the `require_mfa` and `block_legacy_auth` controls. Unsupported controls are reported and are never silently applied.
+6. Select **Register**.
+7. On the application **Overview** page, copy **Application (client) ID**.
+   This is `ENTRA_CLIENT_ID`.
+8. Open **Certificates & secrets → Client secrets → New client secret**.
+   Choose an expiry appropriate for your security policy.
+9. Copy the secret **Value** immediately after creation, not the Secret ID.
+   This is `ENTRA_CLIENT_SECRET`. Microsoft displays the value only once.
+
+For production, use HTTPS redirect URIs and a secret-management system or
+Docker secrets rather than storing the secret in a plain `.env` file.
+
+## 2. Add the prospect redirect URI
+
+If prospect assessments are enabled, add a second **Web** redirect URI:
+
+```text
+http://localhost:8000/api/prospect/callback
+```
+
+The URI must exactly match `ENTRA_PROSPECT_REDIRECT_URI`, including protocol,
+host, port, path, and trailing slash behavior.
+
+## 3. Add Microsoft Graph permissions
+
+Open **API permissions → Add a permission → Microsoft Graph → Delegated
+permissions** and add the permissions required by the features you will use:
+
+| Feature | Delegated permissions |
+|---|---|
+| Tenant connection and organization verification | `User.Read`, `Organization.Read.All`, `offline_access`, `openid`, `profile` |
+| User and license snapshots | `User.Read.All`, `Directory.Read.All` |
+| Secure Score | `SecurityActions.Read.All` or the current Secure Score permission exposed by your tenant |
+| Conditional Access baseline deployment | `Policy.Read.All`, `Policy.ReadWrite.ConditionalAccess` |
+| Security alerts and risky sign-ins | `SecurityAlert.Read.All`, `AuditLog.Read.All`, `IdentityRiskEvent.Read.All` |
+| User lifecycle actions | `User.ReadWrite.All`, `Directory.ReadWrite.All` |
+| Intune inventory/actions | `DeviceManagementManagedDevices.ReadWrite.All` |
+| OAuth app discovery | `DelegatedPermissionGrant.Read.All`, `Application.Read.All` |
+
+Microsoft may rename or split permissions over time. Review the permission
+ descriptions in the portal and grant only the scopes required by the features
+ enabled in your deployment.
+
+Select **Grant admin consent for your organization** only for the MSP's own
+tenant if appropriate. Each client administrator grants consent for their own
+tenant during the connection flow. Do not grant client access by sharing the
+client secret.
+
+## 4. Configure the local deployment
+
+From the repository root:
+
+```sh
+cp .env.example .env
+```
+
+Generate the two required application secrets. `JWT_SECRET` can be any long,
+random deployment secret. Generate the Fernet key with:
+
+```sh
+backend/.venv/bin/python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Edit `.env`:
+
+```env
+JWT_SECRET=replace-with-a-long-random-value
+CREDENTIAL_ENCRYPTION_KEY=the-generated-fernet-key
+ENTRA_CLIENT_ID=the-application-client-id
+ENTRA_CLIENT_SECRET=the-secret-value
+ENTRA_REDIRECT_URI=http://localhost:8000/api/auth/microsoft/callback
+ENTRA_PROSPECT_REDIRECT_URI=http://localhost:8000/api/prospect/callback
+FRONTEND_URL=http://localhost:5173
+AUTO_REMEDIATION_ENABLED=false
+```
+
+The Entra values appear once in this file because they belong to the shared
+TenantToolbox application. Do not add a separate block for each client tenant.
+Never commit `.env` or send the client secret to a client.
+
+Start or restart the stack:
+
+```sh
+docker compose up -d --build
+```
+
+The first-time wizard at `http://localhost:5173` creates the initial
+TenantToolbox owner account.
+
+## 5. Connect multiple client tenants
+
+For every client tenant:
+
+1. Sign in to TenantToolbox as the owner.
+2. Open **Client tenants → Connect tenant**.
+3. The client administrator signs in to Microsoft and accepts the requested
+   delegated permissions for that tenant.
+4. TenantToolbox verifies the tenant with Graph `/organization`.
+5. TenantToolbox stores the tenant ID and encrypted access/refresh tokens in
+   PostgreSQL.
+6. Repeat for the next client tenant.
+
+Each tenant gets its own encrypted credential record. The browser never
+receives refresh tokens, and no client credentials are written to `.env`.
+If consent is revoked, the tenant shows a connection warning and can be
+repaired with **Reconnect**.
+
+## Troubleshooting
+
+- **`ENTRA_CLIENT_ID is not configured`**: confirm `.env` exists in the
+  repository root and recreate the backend container.
+- **Redirect URI mismatch**: compare the Entra portal URI with
+  `ENTRA_REDIRECT_URI` character-for-character.
+- **Admin consent or Graph 403**: add the required delegated permission and
+  grant consent in the affected client tenant.
+- **Connect button returns 502 in Docker**: ensure the frontend container is
+  using the Compose backend proxy target and restart with `--build`.
+
+The callback exchanges the authorization code, calls Graph organization
+verification, and stores only encrypted tokens. The API never returns tokens
+to the frontend.

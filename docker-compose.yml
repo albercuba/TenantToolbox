@@ -8,9 +8,20 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql+psycopg://tenanttoolbox:tenanttoolbox@postgres:5432/tenanttoolbox
-      REDIS_URL: redis://redis:6379/0
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Set CREDENTIAL_ENCRYPTION_KEY in .env}
+      ENTRA_CLIENT_ID: ${ENTRA_CLIENT_ID:-}
+      ENTRA_CLIENT_SECRET: ${ENTRA_CLIENT_SECRET:-}
+      ENTRA_REDIRECT_URI: ${ENTRA_REDIRECT_URI:-http://localhost:8000/api/auth/microsoft/callback}
+      ENTRA_PROSPECT_REDIRECT_URI: ${ENTRA_PROSPECT_REDIRECT_URI:-http://localhost:8000/api/prospect/callback}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_TLS: ${SMTP_TLS:-true}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      ALERT_EMAIL: ${ALERT_EMAIL:-}
       PSA_VENDOR: ${PSA_VENDOR:-generic}
       PSA_WEBHOOK_URL: ${PSA_WEBHOOK_URL:-}
       AUTO_REMEDIATION_ENABLED: ${AUTO_REMEDIATION_ENABLED:-false}
