@@ -6,12 +6,13 @@ import httpx
 from app.config import settings
 
 
-def send_alert_email(subject: str, body: str) -> bool:
-    if not settings.smtp_host or not settings.alert_email:
+def send_alert_email(subject: str, body: str, recipient: str | None = None) -> bool:
+    recipient = recipient or settings.alert_email
+    if not settings.smtp_host or not recipient:
         return False
     message = EmailMessage()
-    message["From"] = settings.smtp_from or settings.alert_email
-    message["To"] = settings.alert_email
+    message["From"] = settings.smtp_from or recipient
+    message["To"] = recipient
     message["Subject"] = subject
     message.set_content(body)
     with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as smtp:
@@ -21,6 +22,10 @@ def send_alert_email(subject: str, body: str) -> bool:
             smtp.login(settings.smtp_username, settings.smtp_password)
         smtp.send_message(message)
     return True
+
+
+def send_report_email(recipient: str, title: str, body: str) -> bool:
+    return send_alert_email(title, body, recipient)
 
 
 def send_psa_webhook(payload: dict) -> bool:

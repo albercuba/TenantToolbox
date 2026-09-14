@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import Base, engine, get_db
 from app.models import (Alert, AlertRule, AuditLog, BaselineTemplate, ClientTenant, ComplianceControl, DriftEvent,
-                        Organization, Report, StaffUser, TenantBaselineAssignment, TenantCredential,
+                        Report, ReportSchedule, StaffUser, TenantBaselineAssignment, TenantCredential,
                         TenantLicenseSnapshot, TenantSecureScoreSnapshot,
                         TenantUserSnapshot)
 from app.alerting import ingest_risky_signins, ingest_tenant_alerts
@@ -100,6 +100,11 @@ class AlertRuleRequest(BaseModel):
     suppress_minutes: int = 0
 
 
+class ReportScheduleRequest(BaseModel):
+    cadence: str
+    recipient_email: EmailStr
+
+
 
 def write_audit(db: Session, user: StaffUser, action: str, tenant_id: str | None = None, payload: dict | None = None) -> None:
     db.add(AuditLog(organization_id=user.organization_id, actor_id=user.id, client_tenant_id=tenant_id, action=action, target_type="client_tenant" if tenant_id else None, target_id=tenant_id, payload=payload or {}))
@@ -167,6 +172,43 @@ def get_report(report_id: str, user: StaffUser = Depends(get_current_user), db: 
     if not report or report.organization_id != user.organization_id:
         raise HTTPException(status_code=404, detail="Report not found")
     return report.content
+
+
+@app.get("/api/reports/{report_id}/pdf")
+def get_report_pdf(report_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> StreamingResponse:
+    report = db.get(Report, report_id)
+    if not report or report.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Report not found")
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    pdf.setTitle(report.title)
+    y = 750
+    for line in [report.title, "", f"Generated: {report.created_at.isoformat()}", "", "This report is generated from TenantToolbox security snapshots."]:
+        pdf.drawString(54, y, line[:110])
+        y -= 18
+    pdf.save()
+    buffer.seek(0)
+    return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={report.id}.pdf"})
+
+
+@app.post("/api/tenants/{tenant_id}/report-schedules", status_code=status.HTTP_201_CREATED)
+def create_report_schedule(tenant_id: str, payload: ReportScheduleRequest, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict:
+    if payload.cadence not in {"weekly", "monthly", "quarterly"}:
+        raise HTTPException(status_code=400, detail="Cadence must be weekly, monthly, or quarterly")
+    tenant = ensure_tenant_access(tenant_id, user, db)
+    schedule = ReportSchedule(organization_id=user.organization_id, client_tenant_id=tenant.id, cadence=payload.cadence, recipient_email=str(payload.recipient_email), next_run_at=datetime.now(timezone.utc))
+    db.add(schedule)
+    db.flush()
+    write_audit(db, user, "report_schedule.create", tenant.id, {"schedule_id": schedule.id})
+    db.commit()
+    return {"id": schedule.id, "tenant_id": tenant.id, "cadence": schedule.cadence, "recipient_email": schedule.recipient_email, "enabled": schedule.enabled}
+
+
+@app.get("/api/report-schedules")
+def list_report_schedules(user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
+    return [{"id": item.id, "tenant_id": item.client_tenant_id, "cadence": item.cadence, "recipient_email": item.recipient_email, "enabled": item.enabled, "next_run_at": item.next_run_at} for item in db.scalars(select(ReportSchedule).where(ReportSchedule.organization_id == user.organization_id)).all()]
 
 
 @app.post("/api/auth/signup", status_code=status.HTTP_201_CREATED)

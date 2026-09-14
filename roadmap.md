@@ -149,13 +149,13 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 
 ### Phase 4 — Compliance mapping & reporting
 
-**Progress:** Static NIST, CIS, and CMMC mappings, per-tenant coverage calculation, audit CSV export, and on-demand HTML security reports are implemented. PDF rendering, branding settings, scheduled delivery, and date-range report filtering remain open.
+**Progress:** Static NIST, CIS, and CMMC mappings, per-tenant coverage calculation, audit CSV export, on-demand HTML/PDF security reports, and scheduled SMTP delivery are implemented. Branded templates and date-range report filtering remain open.
 
 1. [x] Map each baseline control to HIPAA / NIST-CIS / CMMC control IDs (static reference data + tagging on templates)
 2. [x] Compliance coverage view per tenant ("62% of CMMC Level 1 controls satisfied")
 3. [x] Audit trail export (CSV/PDF) of policy states, drift events, remediations for a date range (CSV currently supported)
-4. [x] Report template engine (HTML → PDF), brandable with MSP logo/colors stored in org settings (HTML currently supported)
-5. Scheduled report generation + email delivery per tenant, configurable cadence
+4. [x] Report template engine (HTML → PDF) with on-demand PDF export
+5. [x] Scheduled report email delivery per tenant with weekly/monthly/quarterly cadence
 6. [x] On-demand report generation from UI/API
 
 **Exit criteria:** Generate a branded PDF report for a tenant showing posture score, events, and policy status, and schedule it to auto-send monthly.

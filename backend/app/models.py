@@ -16,6 +16,8 @@ class Organization(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     name: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    branding_color: Mapped[str] = mapped_column(String(20), default="#2490ef")
+    branding_logo_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     staff_users: Mapped[list["StaffUser"]] = relationship(back_populates="organization")
     tenants: Mapped[list["ClientTenant"]] = relationship(back_populates="organization")
 
@@ -176,4 +178,16 @@ class Report(Base):
     title: Mapped[str] = mapped_column(String(200))
     content: Mapped[str] = mapped_column(Text)
     created_by: Mapped[str] = mapped_column(ForeignKey("staff_user.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class ReportSchedule(Base):
+    __tablename__ = "report_schedule"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), index=True)
+    client_tenant_id: Mapped[str] = mapped_column(ForeignKey("client_tenant.id", ondelete="CASCADE"), index=True)
+    cadence: Mapped[str] = mapped_column(String(20))
+    recipient_email: Mapped[str] = mapped_column(String(320))
+    enabled: Mapped[bool] = mapped_column(default=True)
+    next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
