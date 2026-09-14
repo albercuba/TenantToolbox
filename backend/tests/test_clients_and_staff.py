@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import cast
 
 import pytest
@@ -6,8 +7,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.db import Base
-from app.main import StaffUserRequest, client_to_response, create_staff_user, delete_client, delete_staff_user, update_staff_user
-from app.models import Client, ClientTenant, Organization, StaffUser
+from app.main import StaffUserRequest, client_to_response, create_staff_user, delete_client, delete_staff_user, search_users, update_staff_user
+from app.models import Client, ClientTenant, Organization, StaffUser, TenantUserSnapshot
 from app.security import create_oauth_state, verify_oauth_state
 
 
@@ -93,6 +94,34 @@ def test_last_owner_cannot_be_deleted_or_demoted():
         with pytest.raises(HTTPException) as error:
             update_staff_user(owner.id, StaffUserRequest(email=owner.email, role="technician"), owner, db)
         assert error.value.status_code == 409
+
+
+def test_all_users_response_contains_directory_detail_fields():
+    with make_session() as db:
+        organization = Organization(name="Org")
+        owner = StaffUser(email="owner@example.com", password_hash="hash", role="owner", organization=organization)
+        tenant = ClientTenant(organization=organization, tenant_id="tenant-1", display_name="Acme M365")
+        db.add_all([organization, owner, tenant])
+        db.flush()
+        db.add(TenantUserSnapshot(
+            client_tenant_id=tenant.id,
+            graph_id="user-1",
+            display_name="Ada Lovelace",
+            user_principal_name="ada@example.com",
+            account_enabled=True,
+            department="Engineering",
+            license_types=["Microsoft 365 Business Premium"],
+            groups=["Administrators"],
+            mfa_settings="Configured",
+            synced_at=datetime.now(timezone.utc),
+        ))
+        db.commit()
+
+        rows = search_users("", owner, db)
+        assert rows[0]["license_types"] == ["Microsoft 365 Business Premium"]
+        assert rows[0]["department"] == "Engineering"
+        assert rows[0]["groups"] == ["Administrators"]
+        assert rows[0]["mfa_settings"] == "Configured"
 
 
 def test_tenant_disconnect_removes_tenant_record():

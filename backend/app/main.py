@@ -250,7 +250,7 @@ def search_users(query: str = Query(default=""), user: StaffUser = Depends(get_c
         pattern = f"%{query.lower()}%"
         statement = statement.where(TenantUserSnapshot.display_name.ilike(pattern) | TenantUserSnapshot.user_principal_name.ilike(pattern))
     rows = db.execute(statement.order_by(ClientTenant.display_name, TenantUserSnapshot.display_name)).all()
-    return [{"tenant_id": tenant.id, "tenant_name": tenant.display_name, "user_id": item.graph_id, "display_name": item.display_name, "user_principal_name": item.user_principal_name, "account_enabled": item.account_enabled} for item, tenant in rows]
+    return [{"tenant_id": tenant.id, "tenant_name": tenant.display_name, "user_id": item.graph_id, "display_name": item.display_name, "user_principal_name": item.user_principal_name, "account_enabled": item.account_enabled, "license_types": item.license_types or [], "department": item.department or "", "groups": item.groups or [], "mfa_settings": item.mfa_settings} for item, tenant in rows]
 
 
 @app.post("/api/users/action")

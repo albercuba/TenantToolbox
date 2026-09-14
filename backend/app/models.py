@@ -102,6 +102,10 @@ class TenantUserSnapshot(Base):
     display_name: Mapped[str] = mapped_column(String(200))
     user_principal_name: Mapped[str] = mapped_column(String(320))
     account_enabled: Mapped[bool | None]
+    department: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    license_types: Mapped[list] = mapped_column(JSON, default=list)
+    groups: Mapped[list] = mapped_column(JSON, default=list)
+    mfa_settings: Mapped[str] = mapped_column(String(100), default="Unavailable")
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

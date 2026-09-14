@@ -89,7 +89,13 @@ class GraphClient:
         return self.get("organization", {"$select": "displayName,verifiedDomains"}).get("value", [{}])[0]
 
     def users(self) -> list[dict]:
-        return self.all_pages("users", {"$select": "id,displayName,userPrincipalName,accountEnabled"})
+        return self.all_pages("users", {"$select": "id,displayName,userPrincipalName,accountEnabled,department,assignedLicenses"})
+
+    def user_groups(self, user_id: str) -> list[str]:
+        return [item.get("displayName", "") for item in self.all_pages(f"users/{user_id}/memberOf/microsoft.graph.group", {"$select": "displayName"}) if item.get("displayName")]
+
+    def user_mfa_methods(self, user_id: str) -> list[dict]:
+        return self.get(f"users/{user_id}/authentication/methods").get("value", [])
 
     def licenses(self) -> list[dict]:
         return self.all_pages("subscribedSkus", {"$select": "skuId,skuPartNumber,consumedUnits,prepaidUnits"})

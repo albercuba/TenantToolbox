@@ -42,8 +42,30 @@ def sync_tenant(db: Session, tenant: ClientTenant) -> dict[str, int | str]:
 
     db.query(TenantUserSnapshot).filter_by(client_tenant_id=tenant.id).delete()
     db.query(TenantLicenseSnapshot).filter_by(client_tenant_id=tenant.id).delete()
+    license_names = {item.get("skuId"): item.get("skuPartNumber") for item in licenses if item.get("skuId") and item.get("skuPartNumber")}
     for user in users:
-        db.add(TenantUserSnapshot(client_tenant_id=tenant.id, graph_id=user.get("id", ""), display_name=user.get("displayName", ""), user_principal_name=user.get("userPrincipalName", ""), account_enabled=user.get("accountEnabled"), synced_at=synced_at))
+        graph_id = user.get("id", "")
+        try:
+            groups = client.user_groups(graph_id)
+        except GraphAPIError:
+            groups = []
+        try:
+            methods = client.user_mfa_methods(graph_id)
+            mfa_settings = "Configured" if any("passwordAuthenticationMethod" not in str(method.get("@odata.type", "")) for method in methods) else "Not configured"
+        except GraphAPIError:
+            mfa_settings = "Unavailable"
+        db.add(TenantUserSnapshot(
+            client_tenant_id=tenant.id,
+            graph_id=graph_id,
+            display_name=user.get("displayName", ""),
+            user_principal_name=user.get("userPrincipalName", ""),
+            account_enabled=user.get("accountEnabled"),
+            department=user.get("department"),
+            license_types=[license_names[item["skuId"]] for item in (user.get("assignedLicenses") or []) if item.get("skuId") in license_names],
+            groups=groups,
+            mfa_settings=mfa_settings,
+            synced_at=synced_at,
+        ))
     for license_item in licenses:
         prepaid = license_item.get("prepaidUnits") or {}
         db.add(TenantLicenseSnapshot(client_tenant_id=tenant.id, sku_id=license_item.get("skuId", ""), sku_part_number=license_item.get("skuPartNumber", ""), consumed_units=license_item.get("consumedUnits", 0), enabled_units=prepaid.get("enabled", 0), synced_at=synced_at))
