@@ -134,8 +134,16 @@ a consent flow.
   `ENTRA_REDIRECT_URI` character-for-character.
 - **Admin consent or Graph 403**: add the required delegated permission and
   grant consent in the affected client tenant.
+- **Microsoft token exchange failed (`invalid_client`)**: use the client secret
+  **Value**, not Secret ID; check that it has not expired; confirm the client
+  ID belongs to this app; then recreate the backend container. Never reuse an
+  old authorization URL after changing the secret.
+- **Microsoft token exchange failed (`invalid_grant`)**: start a fresh Connect
+  tenant flow. Authorization codes are single-use and short-lived; also verify
+  the redirect URI is identical in Entra and `.env`.
 - **Connect button returns 502 in Docker**: ensure the frontend container is
-  using the Compose backend proxy target and restart with `--build`.
+  using the Compose backend proxy target and restart with `--build`. The API
+  now includes Microsoft's safe error code and description in the response.
 
 The callback exchanges the authorization code, calls Graph organization
 verification, and stores only encrypted tokens. The API never returns tokens

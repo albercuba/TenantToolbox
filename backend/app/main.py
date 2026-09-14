@@ -568,7 +568,13 @@ def microsoft_callback(code: str | None = Query(default=None), state: str | None
         raise HTTPException(status_code=503, detail="Microsoft OAuth is not configured")
     token_response = httpx.post("https://login.microsoftonline.com/common/oauth2/v2.0/token", data={"client_id": settings.entra_client_id, "client_secret": settings.entra_client_secret, "code": code, "redirect_uri": settings.entra_redirect_uri, "grant_type": "authorization_code", "scope": "openid profile offline_access User.Read Organization.Read.All"}, timeout=15)
     if token_response.is_error:
-        raise HTTPException(status_code=502, detail="Microsoft token exchange failed")
+        try:
+            error_payload = token_response.json()
+        except ValueError:
+            error_payload = {}
+        error_code = error_payload.get("error", "unknown_error")
+        error_description = error_payload.get("error_description", "Microsoft rejected the authorization code")
+        raise HTTPException(status_code=502, detail=f"Microsoft token exchange failed ({error_code}): {error_description}")
     tokens = token_response.json()
     access_token = tokens.get("access_token")
     refresh_token = tokens.get("refresh_token")
