@@ -1,3 +1,4 @@
+import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -53,12 +54,7 @@ class GraphClient:
         return token
 
     def get(self, path: str, params: dict[str, str] | None = None) -> dict:
-        response = httpx.get(
-            f"{GRAPH_URL}/{path.lstrip('/')}",
-            headers={"Authorization": f"Bearer {self._access_token()}"},
-            params=params,
-            timeout=30,
-        )
+        response = self._http("GET", f"{GRAPH_URL}/{path.lstrip('/')}", headers={"Authorization": f"Bearer {self._access_token()}"}, params=params, timeout=30)
         if response.is_error:
             raise GraphAPIError(f"Microsoft Graph request failed: {response.status_code}")
         return response.json()
@@ -68,7 +64,7 @@ class GraphClient:
         next_url: str | None = f"{GRAPH_URL}/{path.lstrip('/')}"
         query = params
         while next_url:
-            response = httpx.get(next_url, headers={"Authorization": f"Bearer {self._access_token()}"}, params=query, timeout=30)
+            response = self._http("GET", next_url, headers={"Authorization": f"Bearer {self._access_token()}"}, params=query, timeout=30)
             if response.is_error:
                 raise GraphAPIError(f"Microsoft Graph request failed: {response.status_code}")
             payload = response.json()
@@ -87,8 +83,17 @@ class GraphClient:
         scores = self.get("security/secureScores", {"$top": "1"}).get("value", [])
         return scores[0] if scores else None
 
+    def _http(self, method: str, url: str, **kwargs):
+        for attempt in range(4):
+            response = httpx.request(method, url, **kwargs)
+            if response.status_code not in {429, 500, 502, 503, 504} or attempt == 3:
+                return response
+            delay = int(response.headers.get("Retry-After", "0")) or 2**attempt
+            time.sleep(min(delay, 30))
+        raise GraphAPIError("Microsoft Graph retry limit exceeded")
+
     def _request(self, method: str, path: str, payload: dict | None = None) -> dict:
-        response = httpx.request(method, f"{GRAPH_URL}/{path.lstrip('/')}", headers={"Authorization": f"Bearer {self._access_token()}", "Content-Type": "application/json"}, json=payload, timeout=30)
+        response = self._http("POST" if method == "POST" else method, f"{GRAPH_URL}/{path.lstrip('/')}", headers={"Authorization": f"Bearer {self._access_token()}", "Content-Type": "application/json"}, json=payload, timeout=30)
         if response.is_error:
             raise GraphAPIError(f"Microsoft Graph request failed: {response.status_code}")
         return response.json() if response.content else {}

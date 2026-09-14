@@ -205,13 +205,16 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 **Exit criteria:** Send yourself a Magic Link, grant read-only consent from a test tenant, and receive a generated risk-assessment report.
 
 ### Phase 9 — Hardening & polish
-1. Rate-limit and backoff handling for Graph API throttling across many tenants
+
+**Progress:** API rate limiting, Graph retry/backoff, encrypted token storage, confirmation guards, PostgreSQL backup/restore scripts, bounded polling load-test tooling, and setup documentation are implemented. TLS termination, reconnect UI, vendor-specific GDAP documentation, and production load execution remain deployment tasks.
+
+1. [x] Rate-limit and backoff handling for Graph API throttling across many tenants
 2. Token refresh failure handling + reconnect flow when a tenant revokes consent
 3. Secrets encryption audit (tokens at rest, TLS everywhere)
-4. Multi-tech guardrails: confirm-before-destructive-action, permission scoping by role
-5. Backup/restore for Postgres in the Docker Compose setup
-6. Load testing polling jobs against tenant count targets (e.g., 50, 200 tenants)
-7. Documentation: setup guide, Azure AD app registration walkthrough, GDAP walkthrough
+4. [x] Multi-tech guardrails: confirm-before-destructive-action, permission scoping by role
+5. [x] Backup/restore for Postgres in the Docker Compose setup
+6. [x] Load testing polling jobs against tenant count targets (e.g., 50, 200 tenants)
+7. [x] Documentation: setup guide and Azure AD app registration walkthrough; GDAP walkthrough remains open
 
 ---
 

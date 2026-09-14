@@ -26,6 +26,7 @@ from app.alerting import ingest_risky_signins, ingest_tenant_alerts
 from app.graph import GraphAPIError, GraphClient
 from app.sync import sync_tenant
 from app.notifications import send_alert_email, send_psa_webhook
+from app.rate_limit import RateLimitMiddleware
 from app.security import (create_access_token, encrypt_credential, get_current_user,
                           hash_password, require_owner, verify_password)
 
@@ -68,6 +69,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RateLimitMiddleware)
 
 # The state is short-lived and process-local for this initial single-instance flow.
 _oauth_states: dict[str, str] = {}
