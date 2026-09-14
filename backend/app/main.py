@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import Base, engine, get_db
-from app.models import (Alert, AlertRule, AuditLog, BaselineTemplate, ClientTenant, ComplianceControl, DriftEvent,
+from app.models import (Alert, AlertRule, AuditLog, BaselineTemplate, ClientTenant, ComplianceControl, DiscoveredApp, DriftEvent,
                         Report, ReportSchedule, StaffUser, TenantBaselineAssignment, TenantCredential,
                         TenantDeviceSnapshot, TenantLicenseSnapshot, TenantSecureScoreSnapshot,
                         TenantUserSnapshot)
@@ -123,6 +123,40 @@ def write_audit(db: Session, user: StaffUser, action: str, tenant_id: str | None
 def audit_log(user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
     entries = db.scalars(select(AuditLog).where(AuditLog.organization_id == user.organization_id).order_by(AuditLog.created_at.desc()).limit(100)).all()
     return [{"id": item.id, "action": item.action, "tenant_id": item.client_tenant_id, "actor_id": item.actor_id, "payload": item.payload, "created_at": item.created_at} for item in entries]
+
+def app_risk_score(scopes: list[str]) -> int:
+    normalized = {scope.lower() for scope in scopes}
+    score = len(normalized)
+    if any("mail" in scope or "files" in scope for scope in normalized): score += 3
+    if any("write" in scope or "full_access" in scope for scope in normalized): score += 4
+    return min(score, 10)
+
+
+@app.post("/api/tenants/{tenant_id}/discover/sync")
+def sync_discovered_apps(tenant_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, int]:
+    tenant = ensure_tenant_access(tenant_id, user, db)
+    if not tenant.credential:
+        raise HTTPException(status_code=409, detail="Tenant has no delegated credential")
+    try:
+        grants = GraphClient(tenant, tenant.credential).oauth_grants()
+    except GraphAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    db.query(DiscoveredApp).filter_by(client_tenant_id=tenant.id).delete()
+    now = datetime.now(timezone.utc)
+    for grant in grants:
+        principal = grant.get("clientServicePrincipal") or {}
+        scopes = [scope for scope in (grant.get("scope") or "").split() if scope]
+        db.add(DiscoveredApp(client_tenant_id=tenant.id, graph_id=principal.get("id") or grant.get("clientId", ""), display_name=principal.get("displayName") or "Unknown application", publisher=principal.get("publisherName"), permission_scopes=scopes, risk_score=app_risk_score(scopes), last_seen_at=now))
+    write_audit(db, user, "discover.sync", tenant.id, {"count": len(grants)})
+    db.commit()
+    return {"synced": len(grants)}
+
+
+@app.get("/api/tenants/{tenant_id}/discover/apps")
+def discovered_apps(tenant_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
+    ensure_tenant_access(tenant_id, user, db)
+    return [{"id": item.graph_id, "display_name": item.display_name, "publisher": item.publisher, "permission_scopes": item.permission_scopes, "risk_score": item.risk_score, "last_seen_at": item.last_seen_at} for item in db.scalars(select(DiscoveredApp).where(DiscoveredApp.client_tenant_id == tenant_id).order_by(DiscoveredApp.risk_score.desc(), DiscoveredApp.display_name)).all()]
+
 
 @app.post("/api/tenants/{tenant_id}/devices/sync")
 def sync_devices(tenant_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, int]:

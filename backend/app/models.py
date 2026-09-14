@@ -203,3 +203,15 @@ class TenantDeviceSnapshot(Base):
     compliance_state: Mapped[str | None] = mapped_column(String(50), nullable=True)
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class DiscoveredApp(Base):
+    __tablename__ = "discovered_app"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    client_tenant_id: Mapped[str] = mapped_column(ForeignKey("client_tenant.id", ondelete="CASCADE"), index=True)
+    graph_id: Mapped[str] = mapped_column(String(100))
+    display_name: Mapped[str] = mapped_column(String(200))
+    publisher: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    permission_scopes: Mapped[list] = mapped_column(JSON)
+    risk_score: Mapped[int] = mapped_column(default=0)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

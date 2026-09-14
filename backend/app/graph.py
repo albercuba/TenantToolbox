@@ -136,6 +136,9 @@ class GraphClient:
         payload = {"addLicenses": [{"skuId": sku_id, "disabledPlans": []}], "removeLicenses": []} if assign else {"addLicenses": [], "removeLicenses": [sku_id]}
         self._request("POST", f"users/{user_id}/assignLicense", payload)
 
+    def oauth_grants(self) -> list[dict]:
+        return self.all_pages("oauth2PermissionGrants", {"$expand": "clientServicePrincipal($select=id,displayName,appId,publisherName)"})
+
     def devices(self) -> list[dict]:
         return self.all_pages("deviceManagement/managedDevices", {"$select": "id,deviceName,operatingSystem,complianceState,lastSyncDateTime"})
 

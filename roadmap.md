@@ -184,10 +184,13 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 **Exit criteria:** Deploy a compliance policy template to a tenant and see device compliance status reflected in the dashboard.
 
 ### Phase 7 — Discover (SaaS / Shadow IT)
-1. Enumerate OAuth app consent grants per tenant via Graph API
-2. Risk-score apps by permission scope (e.g., mail.read+files.readwrite = high risk)
-3. Shadow IT dashboard per tenant with risk-sorted app list
-4. (Stretch) Optional lightweight browser-extension or RMM-deployed agent for deeper SaaS usage discovery beyond OAuth grants
+
+**Progress:** OAuth consent-grant synchronization, permission-scope risk scoring, and risk-ranked discovered-app APIs are implemented. Browser/RMM discovery remains a stretch item.
+
+1. [x] Enumerate OAuth app consent grants per tenant via Graph API
+2. [x] Risk-score apps by permission scope (e.g., mail.read+files.readwrite = high risk)
+3. [x] Shadow IT dashboard API per tenant with risk-sorted app list
+4. (Stretch) Optional lightweight browser-extension or RMM-deployed agent for deeper SaaS usage discovery beyond OAuth grants — treat as a stretch feature
 
 **Exit criteria:** View a ranked list of OAuth-connected third-party apps per tenant with a risk score.
 
