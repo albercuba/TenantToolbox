@@ -76,6 +76,19 @@ class TenantLicenseSnapshot(Base):
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), index=True)
+    actor_id: Mapped[str | None] = mapped_column(ForeignKey("staff_user.id"), nullable=True)
+    client_tenant_id: Mapped[str | None] = mapped_column(ForeignKey("client_tenant.id", ondelete="SET NULL"), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(100))
+    target_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    target_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, index=True)
+
+
 class TenantSecureScoreSnapshot(Base):
     __tablename__ = "tenant_secure_score_snapshot"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))

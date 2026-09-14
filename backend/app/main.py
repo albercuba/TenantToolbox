@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import Base, engine, get_db
-from app.models import (ClientTenant, Organization, StaffUser, TenantCredential,
+from app.models import (AuditLog, ClientTenant, Organization, StaffUser, TenantCredential,
                         TenantLicenseSnapshot, TenantSecureScoreSnapshot,
                         TenantUserSnapshot)
 from app.sync import sync_tenant
@@ -57,6 +57,15 @@ class TenantResponse(BaseModel):
 
 
 
+def write_audit(db: Session, user: StaffUser, action: str, tenant_id: str | None = None, payload: dict | None = None) -> None:
+    db.add(AuditLog(organization_id=user.organization_id, actor_id=user.id, client_tenant_id=tenant_id, action=action, target_type="client_tenant" if tenant_id else None, target_id=tenant_id, payload=payload or {}))
+
+
+@app.get("/api/audit-log")
+def audit_log(user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
+    entries = db.scalars(select(AuditLog).where(AuditLog.organization_id == user.organization_id).order_by(AuditLog.created_at.desc()).limit(100)).all()
+    return [{"id": item.id, "action": item.action, "tenant_id": item.client_tenant_id, "actor_id": item.actor_id, "payload": item.payload, "created_at": item.created_at} for item in entries]
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "tenanttoolbox-api"}
@@ -73,6 +82,8 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> dict[str, s
     db.add(user)
     db.commit()
     db.refresh(user)
+    write_audit(db, user, "staff.signup")
+    db.commit()
     return {"access_token": create_access_token(user), "token_type": "bearer", "role": user.role}
 
 
@@ -156,7 +167,10 @@ def synchronize_tenant(tenant_id: str, user: StaffUser = Depends(get_current_use
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
     try:
-        return sync_tenant(db, tenant)
+        result = sync_tenant(db, tenant)
+        write_audit(db, user, "tenant.sync", tenant.id, result)
+        db.commit()
+        return result
     except RuntimeError as exc:
         tenant.connection_status = "needs_attention"
         tenant.last_error = str(exc)
@@ -197,5 +211,6 @@ def disconnect_tenant(tenant_id: str, user: StaffUser = Depends(require_owner), 
     tenant = db.scalar(select(ClientTenant).where(ClientTenant.id == tenant_id, ClientTenant.organization_id == user.organization_id))
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
+    write_audit(db, user, "tenant.disconnect", tenant.id)
     db.delete(tenant)
     db.commit()
