@@ -31,9 +31,11 @@ Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for se
 
 ### 3.1 Platform / foundation
 - [ ] Multi-tenant dashboard — switch between client tenants without re-authenticating
+- [x] Tenant onboarding via direct Microsoft Entra admin consent (single tenant connection)
 - [ ] Tenant onboarding via Microsoft Partner Center / CSP import
 - [ ] Tenant onboarding via "Magic Link" (self-service admin consent flow sent to the client)
 - [ ] PSA integration (ConnectWise, Autotask, Halo, etc.) for ticket creation from alerts
+- [x] Local MSP staff authentication with owner/tech roles and owner-only tenant disconnect guardrail
 - [ ] Role-based access for MSP staff (owner, L1/L2/L3 tech) with guardrails on what each role can execute
 - [ ] Public API for pulling reporting data into other tools
 - [ ] Audit log of every action taken by every technician, per tenant
