@@ -211,7 +211,7 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 **Progress:** Phase 9 application hardening is complete for rate limiting, Graph retry/backoff, encrypted credentials, confirmation/RBAC guards, backup/restore, bounded load tooling, migration execution, and reconnect UI/API. TLS termination, live production load execution, and GDAP operations remain deployment tasks.
 
 1. [x] Rate-limit and backoff handling for Graph API throttling across many tenants
-2. [x] Token refresh failure handling + reconnect flow when a tenant revokes consent
+2. [x] Token refresh failure handling + reconnect flow when a tenant revokes consent, using restart-safe signed OAuth state
 3. [x] Secrets encryption audit (tokens encrypted at rest; TLS is enforced at the deployment/reverse-proxy boundary)
 4. [x] Multi-tech guardrails: confirm-before-destructive-action, permission scoping by role
 5. [x] Backup/restore for Postgres in the Docker Compose setup

@@ -28,8 +28,8 @@ from app.sync import sync_tenant
 from app.notifications import send_alert_email, send_psa_ticket, send_psa_webhook
 from app.rate_limit import RateLimitMiddleware
 from app.lifecycle import router as lifecycle_router
-from app.security import (create_access_token, encrypt_credential, get_current_user,
-                          hash_password, require_owner, verify_password)
+from app.security import (create_access_token, create_oauth_state, encrypt_credential, get_current_user,
+                          hash_password, require_owner, verify_oauth_state, verify_password)
 from app.rbac import require_permission, role_permissions
 
 COMPLIANCE_CONTROLS = {
@@ -475,8 +475,7 @@ def update_branding(payload: BrandingRequest, user: StaffUser = Depends(require_
 def microsoft_start(user: StaffUser = Depends(get_current_user)) -> dict[str, str]:
     if not settings.entra_client_id:
         raise HTTPException(status_code=503, detail="ENTRA_CLIENT_ID is not configured")
-    state = secrets.token_urlsafe(32)
-    _oauth_states[state] = user.id
+    state = create_oauth_state(user.id)
     params = {"client_id": settings.entra_client_id, "response_type": "code", "redirect_uri": settings.entra_redirect_uri, "response_mode": "query", "scope": "openid profile offline_access User.Read Organization.Read.All", "state": state}
     return {"authorization_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" + urlencode(params)}
 
@@ -550,18 +549,21 @@ def reconnect_tenant(tenant_id: str, user: StaffUser = Depends(require_permissio
     tenant = ensure_tenant_access(tenant_id, user, db)
     if not settings.entra_client_id:
         raise HTTPException(status_code=503, detail="ENTRA_CLIENT_ID is not configured")
-    state = secrets.token_urlsafe(32)
-    _reconnect_states[state] = (user.id, tenant.id)
+    state = create_oauth_state(user.id, tenant.id)
     params = {"client_id": settings.entra_client_id, "response_type": "code", "redirect_uri": settings.entra_redirect_uri, "response_mode": "query", "scope": "openid profile offline_access User.Read Organization.Read.All", "state": state}
     return {"authorization_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" + urlencode(params), "tenant_id": tenant.id}
 
 
 @app.get("/api/auth/microsoft/callback")
 def microsoft_callback(code: str | None = Query(default=None), state: str | None = Query(default=None), error: str | None = Query(default=None), db: Session = Depends(get_db)):
-    reconnect = _reconnect_states.pop(state or "", None)
-    user_id = reconnect[0] if reconnect else _oauth_states.pop(state or "", None)
-    if error or not code or not user_id:
-        raise HTTPException(status_code=400, detail=error or "Invalid or expired OAuth state")
+    try:
+        state_payload = verify_oauth_state(state or "")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=error or "Invalid or expired OAuth state") from exc
+    user_id = state_payload["sub"]
+    reconnect = (user_id, state_payload.get("tenant_id")) if state_payload.get("tenant_id") else None
+    if error or not code:
+        raise HTTPException(status_code=400, detail=error or "Microsoft authorization was not completed")
     if not settings.entra_client_id or not settings.entra_client_secret:
         raise HTTPException(status_code=503, detail="Microsoft OAuth is not configured")
     token_response = httpx.post("https://login.microsoftonline.com/common/oauth2/v2.0/token", data={"client_id": settings.entra_client_id, "client_secret": settings.entra_client_secret, "code": code, "redirect_uri": settings.entra_redirect_uri, "grant_type": "authorization_code", "scope": "openid profile offline_access User.Read Organization.Read.All"}, timeout=15)

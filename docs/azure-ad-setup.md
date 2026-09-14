@@ -122,7 +122,9 @@ For every client tenant:
 Each tenant gets its own encrypted credential record. The browser never
 receives refresh tokens, and no client credentials are written to `.env`.
 If consent is revoked, the tenant shows a connection warning and can be
-repaired with **Reconnect**.
+repaired with **Reconnect**. OAuth state is short-lived, signed, and bound to
+the initiating staff user/tenant, so normal backend restarts do not invalidate
+a consent flow.
 
 ## Troubleshooting
 

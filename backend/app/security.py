@@ -33,6 +33,18 @@ def create_access_token(user: StaffUser) -> str:
     return jwt.encode({"sub": user.id, "role": user.role, "exp": expires}, settings.jwt_secret, algorithm="HS256")
 
 
+def create_oauth_state(user_id: str, tenant_id: str | None = None) -> str:
+    expires = datetime.now(timezone.utc) + timedelta(minutes=10)
+    return jwt.encode({"sub": user_id, "tenant_id": tenant_id, "purpose": "oauth", "exp": expires}, settings.jwt_secret, algorithm="HS256")
+
+
+def verify_oauth_state(state: str) -> dict:
+    payload = jwt.decode(state, settings.jwt_secret, algorithms=["HS256"])
+    if payload.get("purpose") != "oauth" or not payload.get("sub"):
+        raise jwt.InvalidTokenError("Invalid OAuth state purpose")
+    return payload
+
+
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> StaffUser:
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
