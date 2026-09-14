@@ -316,7 +316,7 @@ def detect_baseline_drift(tenant_id: str, baseline_id: str, user: StaffUser = De
 @app.get("/api/alerts")
 def list_alerts(user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
     items = db.scalars(select(Alert).join(ClientTenant).where(ClientTenant.organization_id == user.organization_id).order_by(Alert.created_at.desc()).limit(100)).all()
-    return [{"id": item.id, "tenant_id": item.client_tenant_id, "severity": item.severity, "title": item.title, "message": item.message, "status": item.status, "created_at": item.created_at} for item in items]
+    return [{"id": item.id, "tenant_id": item.client_tenant_id, "baseline_id": db.get(DriftEvent, item.drift_event_id).baseline_template_id if item.drift_event_id and db.get(DriftEvent, item.drift_event_id) else None, "severity": item.severity, "title": item.title, "message": item.message, "status": item.status, "created_at": item.created_at} for item in items]
 
 
 @app.post("/api/tenants/{tenant_id}/baselines/{baseline_id}/rollback")

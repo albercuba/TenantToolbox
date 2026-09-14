@@ -5,7 +5,11 @@ from sqlalchemy.orm import Session
 
 from app.graph import GraphAPIError, GraphClient
 from app.models import (
+    Alert,
+    BaselineTemplate,
     ClientTenant,
+    DriftEvent,
+    TenantBaselineAssignment,
     TenantCredential,
     TenantLicenseSnapshot,
     TenantSecureScoreSnapshot,
@@ -50,3 +54,32 @@ def sync_connected_tenants(db: Session) -> int:
             tenant.last_error = str(exc)
             db.commit()
     return synced
+
+
+def detect_scheduled_drift(db: Session) -> int:
+    assignments = db.scalars(select(TenantBaselineAssignment)).all()
+    detected = 0
+    for assignment in assignments:
+        tenant = db.get(ClientTenant, assignment.client_tenant_id)
+        baseline = db.get(BaselineTemplate, assignment.baseline_template_id)
+        if not tenant or not baseline or not tenant.credential:
+            continue
+        try:
+            differences = GraphClient(tenant, tenant.credential).baseline_differences(baseline.definition)
+        except GraphAPIError as exc:
+            tenant.connection_status = "needs_attention"
+            tenant.last_error = str(exc)
+            db.commit()
+            continue
+        if not differences:
+            continue
+        existing = db.scalar(select(DriftEvent).where(DriftEvent.client_tenant_id == tenant.id, DriftEvent.baseline_template_id == baseline.id, DriftEvent.resolved_at.is_(None)).order_by(DriftEvent.detected_at.desc()))
+        if existing and existing.differences == differences:
+            continue
+        event = DriftEvent(client_tenant_id=tenant.id, baseline_template_id=baseline.id, differences=differences)
+        db.add(event)
+        db.flush()
+        db.add(Alert(client_tenant_id=tenant.id, drift_event_id=event.id, severity="high", title="Baseline drift detected", message=f"{len(differences)} control(s) differ from {baseline.name}."))
+        db.commit()
+        detected += 1
+    return detected

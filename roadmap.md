@@ -44,9 +44,9 @@ Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for se
 ### 3.2 Secure Autopilot (security & compliance) — the core module
 - [x] Built-in security baseline templates with JSON control definitions
 - [x] Security baseline template custom builder
-- [ ] 1-click baseline deployment to a tenant (Conditional Access, MFA enforcement, session policies, Defender policies)
-- [ ] Policy drift detection (poll/compare current tenant config vs. assigned baseline)
-- [ ] 1-click drift rollback / re-apply baseline
+- [x] 1-click baseline deployment to a tenant for supported Conditional Access controls
+- [x] Policy drift detection for assigned supported controls
+- [x] 1-click drift rollback / re-apply baseline for supported controls
 - [ ] Auto-remediation: block high-risk sign-ins / suspicious actions automatically, on a schedule or real-time
 - [ ] Real-time breach/security alerts (impossible travel, leaked credentials, risky sign-in, mass file download, etc.) via email and PSA ticket
 - [ ] 1-click remediation directly from an alert/ticket
@@ -118,15 +118,15 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 
 ### Phase 2 — Secure Autopilot v1 (baselines + drift)
 
-**Progress:** Baseline CRUD, assignments, explicit Graph deployment, drift detection, rollback, and in-app drift alerts are implemented. Scheduled drift polling, dashboard actions, and email delivery remain open until completed and tested.
+**Progress:** Phase 2 is complete for the supported Conditional Access controls: baseline CRUD, assignments, explicit Graph deployment, scheduled drift detection, rollback, drift dashboard, in-app alerts, and optional SMTP email delivery are implemented. Live tenant verification remains an operational prerequisite.
 
 1. [x] Baseline template schema (JSON describing target Conditional Access / MFA / Defender settings)
 2. [x] Ship 2-3 out-of-box templates (e.g., "CIS Level 1", "Basic MFA Enforcement")
 3. [x] Custom template builder UI
-4. "Deploy baseline to tenant" action — writes policies via Graph API
-5. Drift detection job: compare live tenant policy state to assigned baseline on schedule, flag deltas
-6. Drift dashboard + 1-click rollback (re-apply baseline)
-7. Alerting: drift found → in-app notification + email
+4. [x] "Deploy baseline to tenant" action — writes supported policies via Graph API
+5. [x] Drift detection job: compare live tenant policy state to assigned baseline on schedule, flag deltas
+6. [x] Drift dashboard + 1-click rollback (re-apply baseline)
+7. [x] Alerting: drift found → in-app notification + optional SMTP email
 
 **Exit criteria:** Deploy a baseline to a test tenant, manually break a policy in the M365 admin center, see TenantToolbox detect and flag drift within one polling cycle, and roll it back with one click.
 

@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 
 type Tenant = {
+  id?: string;
   name: string;
   domain: string;
   status: "Connected" | "Needs attention";
@@ -40,7 +41,7 @@ function App() {
     fetch("/api/tenants", { headers: { Authorization: `Bearer ${token}` } })
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then((items: Array<{ id: string; display_name: string; tenant_id: string; connection_status: string }>) => {
-        const loaded = items.map((item) => ({ name: item.display_name, domain: item.tenant_id, status: item.connection_status === "connected" ? "Connected" : "Needs attention" as Tenant["status"], users: 0, score: "—" }));
+        const loaded = items.map((item) => ({ id: item.id, name: item.display_name, domain: item.tenant_id, status: (item.connection_status === "connected" ? "Connected" : "Needs attention") as Tenant["status"], users: 0, score: "—" }));
         setManagedTenants(loaded);
         if (loaded.length) setSelectedTenantId(loaded[0].domain);
       })
@@ -65,7 +66,7 @@ function App() {
         <button className={`sidebar-item ${activeView === "tenants" ? "active" : ""}`} onClick={() => navigate("tenants")}><Icon><path d="M3 21h18M5 21V5l7-3 7 3v16M9 8h1M14 8h1M9 12h1M14 12h1" /></Icon>Client tenants<span className="count">{managedTenants.length || tenants.length}</span></button>
         <div className="sidebar-section-label">Security</div>
         <button className={`sidebar-item ${activeView === "baseline" ? "active" : ""}`} onClick={() => navigate("baseline")}><Icon><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" /><path d="m9 12 2 2 4-4" /></Icon>Secure Autopilot</button>
-        <button className="sidebar-item"><Icon><path d="M4 4h16v16H4z" /><path d="M8 12h8M8 8h5M8 16h6" /></Icon>Alerts</button>
+        <button className={`sidebar-item ${activeView === "alerts" ? "active" : ""}`} onClick={() => navigate("alerts")}><Icon><path d="M4 4h16v16H4z" /><path d="M8 12h8M8 8h5M8 16h6" /></Icon>Alerts</button>
         <button className={`sidebar-item ${activeView === "audit" ? "active" : ""}`} onClick={() => navigate("audit")}><Icon><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82" /></Icon>Audit log</button>
         <div className="sidebar-section-label">Management</div>
         <button className="sidebar-item"><Icon><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></Icon>Users</button>
@@ -74,7 +75,7 @@ function App() {
       </aside>
 
       <main className="main">
-        {activeView === "dashboard" ? <Dashboard apiStatus={apiStatus} onTenants={() => navigate("tenants")} activeTenant={managedTenants.find((tenant) => tenant.domain === selectedTenantId)?.name} /> : activeView === "tenants" ? <TenantList token={token} /> : activeView === "audit" ? <AuditView token={token} /> : activeView === "baseline" ? <BaselineView token={token} /> : <TenantOverview token={token} tenant={managedTenants.find((item) => item.domain === selectedTenantId)} />}
+        {activeView === "dashboard" ? <Dashboard apiStatus={apiStatus} onTenants={() => navigate("tenants")} activeTenant={managedTenants.find((tenant) => tenant.domain === selectedTenantId)?.name} /> : activeView === "tenants" ? <TenantList token={token} /> : activeView === "audit" ? <AuditView token={token} /> : activeView === "alerts" ? <AlertsView token={token} /> : activeView === "baseline" ? <BaselineView token={token} /> : <TenantOverview token={token} tenant={managedTenants.find((item) => item.domain === selectedTenantId)} />}
       </main>
     </>
   );
@@ -125,11 +126,18 @@ function TenantOverview({ token, tenant }: { token: string; tenant?: Tenant }) {
   useEffect(() => {
     if (!tenant) return;
     const headers = { Authorization: `Bearer ${token}` };
-    const tenantId = tenant.domain;
+    const tenantId = tenant.id;
+        if (!tenantId) return;
     Promise.all([fetch(`/api/tenants/${tenantId}/users`, { headers }), fetch(`/api/tenants/${tenantId}/licenses`, { headers }), fetch(`/api/tenants/${tenantId}/secure-score`, { headers })]).then(async ([userResponse, licenseResponse, scoreResponse]) => { setUsers(await userResponse.json()); setLicenses(await licenseResponse.json()); setScore(scoreResponse.ok ? await scoreResponse.json() : null); });
   }, [token, tenant]);
   if (!tenant) return <div className="panel"><h1 className="page-title">Select a client tenant</h1><div className="page-subtitle">Use the tenant switcher above to open a tenant workspace.</div></div>;
-  return <div className="view active"><div className="breadcrumb"><a href="#dashboard">Dashboard</a><span className="sep">/</span><span>{tenant.name}</span></div><div className="page-head"><div><h1 className="page-title">{tenant.name}</h1><div className="page-subtitle">Tenant detail and latest Microsoft Graph snapshots</div></div><div className="page-actions"><button className="btn btn-primary">Sync now</button></div></div><div className="card-grid"><div className="stat-card"><div className="label">Users</div><div className="value">{users.length}</div><div className="delta flat">Latest snapshot</div></div><div className="stat-card"><div className="label">License SKUs</div><div className="value">{licenses.length}</div><div className="delta flat">Latest snapshot</div></div><div className="stat-card"><div className="label">Secure Score</div><div className="value">{score ? `${score.score}/${score.max_score}` : "—"}</div><div className="delta flat">Latest snapshot</div></div></div><div className="two-col"><div className="panel"><div className="panel-head"><h3>Users</h3><span className="sub">{users.length} records</span></div>{users.slice(0, 8).map((item) => <div className="mini-row" key={item.user_principal_name}><div><div className="name">{item.display_name}</div><div className="sub">{item.user_principal_name}</div></div><span className={`badge ${item.account_enabled ? "ok" : "warn"}`}><span className="dot" />{item.account_enabled ? "Enabled" : "Disabled"}</span></div>)}</div><div className="panel"><div className="panel-head"><h3>Licenses</h3><span className="sub">{licenses.length} SKUs</span></div>{licenses.slice(0, 8).map((item) => <div className="mini-row" key={item.sku_part_number}><div className="name">{item.sku_part_number}</div><span className="sub">{item.consumed_units}/{item.enabled_units}</span></div>)}</div></div></div>;
+  return <div className="view active"><div className="breadcrumb"><a href="#dashboard">Dashboard</a><span className="sep">/</span><span>{tenant.name}</span></div><div className="page-head"><div><h1 className="page-title">{tenant.name}</h1><div className="page-subtitle">Tenant detail and latest Microsoft Graph snapshots</div></div><div className="page-actions"><button className="btn btn-primary" onClick={() => fetch(`/api/tenants/${tenant.id}/sync`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).then(() => window.location.reload())}>Sync now</button></div></div><div className="card-grid"><div className="stat-card"><div className="label">Users</div><div className="value">{users.length}</div><div className="delta flat">Latest snapshot</div></div><div className="stat-card"><div className="label">License SKUs</div><div className="value">{licenses.length}</div><div className="delta flat">Latest snapshot</div></div><div className="stat-card"><div className="label">Secure Score</div><div className="value">{score ? `${score.score}/${score.max_score}` : "—"}</div><div className="delta flat">Latest snapshot</div></div></div><div className="two-col"><div className="panel"><div className="panel-head"><h3>Users</h3><span className="sub">{users.length} records</span></div>{users.slice(0, 8).map((item) => <div className="mini-row" key={item.user_principal_name}><div><div className="name">{item.display_name}</div><div className="sub">{item.user_principal_name}</div></div><span className={`badge ${item.account_enabled ? "ok" : "warn"}`}><span className="dot" />{item.account_enabled ? "Enabled" : "Disabled"}</span></div>)}</div><div className="panel"><div className="panel-head"><h3>Licenses</h3><span className="sub">{licenses.length} SKUs</span></div>{licenses.slice(0, 8).map((item) => <div className="mini-row" key={item.sku_part_number}><div className="name">{item.sku_part_number}</div><span className="sub">{item.consumed_units}/{item.enabled_units}</span></div>)}</div></div></div>;
+}
+
+function AlertsView({ token }: { token: string }) {
+  const [alerts, setAlerts] = useState<Array<{ id: string; title: string; message: string; severity: string; status: string; tenant_id: string; baseline_id?: string; created_at: string }>>([]);
+  useEffect(() => { fetch("/api/alerts", { headers: { Authorization: `Bearer ${token}` } }).then((response) => response.json()).then(setAlerts); }, [token]);
+  return <div className="view active"><div className="page-head"><div><h1 className="page-title">Security alerts</h1><div className="page-subtitle">Drift and security events across client tenants</div></div></div><div className="list-table-wrap"><table className="list-table"><thead><tr><th>Alert</th><th>Tenant</th><th>Severity</th><th>Status</th><th>Created</th></tr></thead><tbody>{alerts.map((alert) => <tr key={alert.id}><td><div className="cell-primary">{alert.title}</div><div className="sub">{alert.message}</div></td><td>{alert.tenant_id}</td><td><span className="badge danger"><span className="dot" />{alert.severity}</span></td><td>{alert.status} {alert.status === "open" && alert.baseline_id && <button className="btn" onClick={() => fetch(`/api/tenants/${alert.tenant_id}/baselines/${alert.baseline_id}/rollback`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).then(() => window.location.reload())}>Re-apply</button>}</td><td>{new Date(alert.created_at).toLocaleString()}</td></tr>)}</tbody></table></div></div>;
 }
 
 function AuditView({ token }: { token: string }) {

@@ -12,6 +12,13 @@ class Settings:
     entra_client_secret: str | None = os.getenv("ENTRA_CLIENT_SECRET")
     entra_redirect_uri: str = os.getenv("ENTRA_REDIRECT_URI", "http://localhost:8000/api/auth/microsoft/callback")
     frontend_url: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    smtp_host: str | None = os.getenv("SMTP_HOST")
+    smtp_port: int = int(os.getenv("SMTP_PORT", "587"))
+    smtp_tls: bool = os.getenv("SMTP_TLS", "true").lower() == "true"
+    smtp_username: str | None = os.getenv("SMTP_USERNAME")
+    smtp_password: str | None = os.getenv("SMTP_PASSWORD")
+    smtp_from: str | None = os.getenv("SMTP_FROM")
+    alert_email: str | None = os.getenv("ALERT_EMAIL")
 
 
 settings = Settings()
