@@ -2,7 +2,7 @@
 
 ## 1. What this is
 
-TenantToolbox is a **self-hosted, Docker-deployable, multi-tenant Microsoft 365 security and management platform for MSPs**. It replicates the core value proposition of Augmentt: let an MSP manage security baselines, monitor for drift/breaches, run user/device lifecycle actions, and generate branded reports — for every client tenant, from one screen, without re-authenticating per tenant.
+TenantToolbox is a **self-hosted, Docker-deployable, multi-tenant Microsoft 365 security and management platform for MSPs**. It lets an MSP manage security baselines, monitor for drift and breaches, run user and device lifecycle actions, and generate branded reports for every client tenant from one screen, without re-authenticating per tenant.
 
 This document is the build roadmap. It is organized into phases so an agent can implement incrementally, with each phase producing a working, testable slice of the product.
 
@@ -18,16 +18,16 @@ This document is the build roadmap. It is organized into phases so an agent can 
 | Cache/Queue | Redis + a task queue (Celery for Python, BullMQ for Node) | Needed for scheduled polling, report generation, remediation jobs |
 | Frontend | React + TypeScript, Vite | SPA dashboard, component reuse across tenant views |
 | Auth (app → user) | OIDC/local auth + optional SSO (Entra ID as IdP) for MSP staff logins | MSP technicians log into TenantToolbox itself |
-| Auth (app → M365 tenants) | Azure AD **multi-tenant app registration** + **GDAP** (Granular Delegated Admin Privileges) via Microsoft Partner Center, falling back to per-tenant admin consent for non-CSP relationships | This is how Augmentt/any MSP tool gets delegated access across client tenants without shared credentials |
+| Auth (app → M365 tenants) | Azure AD **multi-tenant app registration** + **GDAP** (Granular Delegated Admin Privileges) via Microsoft Partner Center, falling back to per-tenant admin consent for non-CSP relationships | This provides delegated access across client tenants without shared credentials |
 | Background jobs | Scheduled polling (Graph API has limited webhook/change-notification coverage) + Graph change notifications where available | Drift detection and alerting need near-real-time signal |
 | Secrets | Vault or Docker secrets / `.env` + encryption at rest for tenant tokens | Refresh tokens per tenant are highly sensitive |
-| Multi-tenancy model in DB | `organization` (the MSP) → `client_tenant` (each M365 tenant) → all resources scoped by `client_tenant_id` | Mirrors Augmentt's MSP-of-MSPs data model |
+| Multi-tenancy model in DB | `organization` (the MSP) → `client_tenant` (each M365 tenant) → all resources scoped by `client_tenant_id` | Supports the MSP-to-client-tenant data model |
 
-Note on the "site license" model Augmentt uses: worth deciding early whether TenantToolbox is single-MSP-per-deployment (simplest, since it's self-hosted per MSP) or supports multiple MSP orgs in one instance (only needed if you intend to resell it). Recommend **single-MSP-per-deployment** for v1 — simplifies auth and billing entirely.
+Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for self-hosted installations) or supports multiple MSP organizations in one instance. Recommend **single-MSP-per-deployment** for v1 — it simplifies authentication and billing entirely.
 
 ---
 
-## 3. Feature inventory (from Augmentt, to replicate)
+## 3. Feature inventory
 
 ### 3.1 Platform / foundation
 - [ ] Multi-tenant dashboard — switch between client tenants without re-authenticating
@@ -77,7 +77,7 @@ Note on the "site license" model Augmentt uses: worth deciding early whether Ten
 
 ### 3.7 Licensing / billing awareness (internal to the MSP, not selling seats)
 - [ ] Track M365 license SKUs per tenant, flag underused/overused licenses
-- [ ] Feature availability gating in-app based on tenant's actual M365 license tier (Augmentt supports both premium and non-premium tenants — mirror this: fall back gracefully when Conditional Access/premium features aren't licensed)
+- [ ] Feature availability gating in-app based on each tenant's actual M365 license tier; fall back gracefully when Conditional Access or other premium features are not licensed
 
 ---
 
