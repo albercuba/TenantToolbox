@@ -50,6 +50,10 @@ while ($listener.IsListening) {
         Connect-Exchange $body.organization
         try {
             switch ($context.Request.Url.AbsolutePath) {
+                '/v1/user-actions/global-address-list-status' {
+                    $mailbox = Get-Mailbox -Identity $body.user_id -ErrorAction Stop
+                    Send-Json $context 200 @{ status = 'completed'; operation = 'global-address-list-status'; hidden = [bool]$mailbox.HiddenFromAddressListsEnabled; execution = 'powershell' }
+                }
                 '/v1/user-actions/global-address-list' {
                     $hidden = [bool]$body.hidden
                     Set-Mailbox -Identity $body.user_id -HiddenFromAddressListsEnabled $hidden -Confirm:$false

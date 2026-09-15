@@ -342,6 +342,19 @@ def search_users(query: str = Query(default=""), user: StaffUser = Depends(get_c
     return [{"tenant_id": tenant.id, "tenant_name": tenant.display_name, "user_id": item.graph_id, "display_name": item.display_name, "user_principal_name": item.user_principal_name, "account_enabled": item.account_enabled, "license_types": [friendly_license_name(value) for value in (item.license_types or [])], "department": item.department or "", "groups": item.groups or [], "mfa_settings": item.mfa_settings} for item, tenant in rows]
 
 
+@app.get("/api/users/global-address-list")
+def global_address_list_status(tenant_id: str, user_id: str, user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> dict:
+    tenant = ensure_tenant_access(tenant_id, user, db)
+    if not tenant.credential:
+        raise HTTPException(status_code=409, detail="Tenant has no delegated credential")
+    if not (tenant.primary_domain or "").lower().endswith(".onmicrosoft.com"):
+        raise HTTPException(status_code=409, detail="Tenant needs a verified .onmicrosoft.com domain; run Sync now before using Exchange actions")
+    try:
+        return ExchangeAutomationClient().global_address_list_status(tenant.tenant_id, user_id, tenant.primary_domain)
+    except ExchangeAutomationError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @app.post("/api/users/action")
 def user_action(payload: UserActionRequest, user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> dict[str, str]:
     if not payload.confirm:

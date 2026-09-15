@@ -36,6 +36,9 @@ class ExchangeAutomationClient:
             raise ExchangeAutomationError(f"Exchange automation failed for {operation}: {detail or response.status_code}")
         return response.json() if response.content else {}
 
+    def global_address_list_status(self, tenant_id: str, user_id: str, organization: str) -> dict:
+        return self._call("global-address-list-status", tenant_id, user_id, {}, organization)
+
     def hide_from_global_address_list(self, tenant_id: str, user_id: str, hidden: bool, organization: str) -> dict:
         return self._call("global-address-list", tenant_id, user_id, {"hidden": hidden}, organization)
 
