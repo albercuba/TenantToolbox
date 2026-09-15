@@ -8,7 +8,7 @@ from app.models import ClientTenant, TenantCredential
 from app.security import decrypt_credential, encrypt_credential
 
 GRAPH_URL = "https://graph.microsoft.com/v1.0"
-TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+TOKEN_URL = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
 
 
 class GraphAPIError(RuntimeError):
@@ -29,28 +29,25 @@ class GraphClient:
             if expires_at > now + timedelta(minutes=2):
                 return decrypt_credential(self.credential.encrypted_access_token)
         if not settings.entra_client_id or not settings.entra_client_secret:
-            raise GraphAPIError("Microsoft OAuth is not configured")
+            raise GraphAPIError("Microsoft app-only Graph credentials are not configured")
         response = httpx.post(
-            TOKEN_URL,
+            TOKEN_URL.format(tenant_id=self.tenant.tenant_id),
             data={
                 "client_id": settings.entra_client_id,
                 "client_secret": settings.entra_client_secret,
-                "grant_type": "refresh_token",
-                "refresh_token": decrypt_credential(self.credential.encrypted_refresh_token),
-                "scope": "openid profile offline_access User.Read User.Read.All User.ReadWrite.All Directory.Read.All Directory.ReadWrite.All GroupMember.Read.All GroupMember.ReadWrite.All UserAuthenticationMethod.Read.All UserAuthenticationMethod.ReadWrite.All MailboxSettings.ReadWrite Organization.Read.All",
+                "grant_type": "client_credentials",
+                "scope": "https://graph.microsoft.com/.default",
             },
             timeout=15,
         )
         if response.is_error:
-            raise GraphAPIError("Microsoft token refresh failed")
+            raise GraphAPIError(f"Microsoft app-only token acquisition failed for tenant {self.tenant.tenant_id}")
         payload = response.json()
         token = payload.get("access_token")
         if not token:
-            raise GraphAPIError("Microsoft token refresh returned no access token")
+            raise GraphAPIError("Microsoft app-only token acquisition returned no access token")
         self.credential.encrypted_access_token = encrypt_credential(token)
         self.credential.access_token_expires_at = now + timedelta(seconds=int(payload.get("expires_in", 3600)))
-        if payload.get("refresh_token"):
-            self.credential.encrypted_refresh_token = encrypt_credential(payload["refresh_token"])
         return token
 
     def get(self, path: str, params: dict[str, str] | None = None) -> dict:

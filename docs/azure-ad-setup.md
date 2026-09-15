@@ -42,8 +42,14 @@ host, port, path, and trailing slash behavior.
 
 ## 3. Add Microsoft Graph permissions
 
+TenantToolbox uses delegated permissions for the initial tenant connection and
+uses Microsoft Graph application permissions for unattended tenant operations.
+Configure both permission types on the same multi-tenant app registration.
+
+### Delegated permissions for tenant connection
+
 Open **API permissions → Add a permission → Microsoft Graph → Delegated
-permissions** and add the permissions required by the features you will use:
+permissions** and add the permissions required by the connection flow:
 
 | Feature | Delegated permissions |
 |---|---|
@@ -58,14 +64,41 @@ permissions** and add the permissions required by the features you will use:
 | OAuth app discovery | `DelegatedPermissionGrant.Read.All`, `Application.Read.All` |
 | CSP/GDAP onboarding | Microsoft Graph application `DelegatedAdminRelationship.ReadWrite.All`, `DelegatedAdminRelationship.Read.All` in the Partner tenant |
 
-Microsoft may rename or split permissions over time. Review the permission
- descriptions in the portal and grant only the scopes required by the features
- enabled in your deployment.
+### Application permissions for unattended operations
 
-Select **Grant admin consent for your organization** only for the MSP's own
-tenant if appropriate. Each client administrator grants consent for their own
-tenant during the connection flow. Do not grant client access by sharing the
-client secret.
+Also add the Microsoft Graph **Application permissions** required by the
+TenantToolbox operations. The backend requests the tenant-specific
+client-credentials token with `https://graph.microsoft.com/.default`:
+
+```text
+User.ReadWrite.All
+Group.ReadWrite.All
+GroupMember.ReadWrite.All
+Directory.ReadWrite.All
+Application.ReadWrite.All
+AppRoleAssignment.ReadWrite.All
+RoleManagement.ReadWrite.Directory
+Policy.ReadWrite.ConditionalAccess
+UserAuthenticationMethod.ReadWrite.All
+DeviceManagementManagedDevices.ReadWrite.All
+DeviceManagementConfiguration.ReadWrite.All
+Organization.ReadWrite.All
+AuditLog.Read.All
+SecurityEvents.Read.All
+SecurityAlert.ReadWrite.All
+MailboxSettings.ReadWrite
+```
+
+Microsoft may rename, split, or restrict permissions over time. Review each
+permission in the portal and grant the set required by the features enabled in
+your deployment. Do not add privileged application permissions merely because a
+future feature may eventually need them.
+
+Grant admin consent for the application permissions in **every customer tenant**
+that TenantToolbox will manage. The same `ENTRA_CLIENT_ID` and secret are used
+for all tenants; the token endpoint is selected from the stored customer tenant
+ID. Delegated consent remains necessary for the initial connection flow. Do not
+grant client access by sharing the client secret.
 
 ## 4. Configure the local deployment
 
