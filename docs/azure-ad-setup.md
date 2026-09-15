@@ -62,7 +62,7 @@ permissions** and add the permissions required by the connection flow:
 | User lifecycle actions | `User.ReadWrite.All`, `Directory.ReadWrite.All`, `GroupMember.ReadWrite.All`, `UserAuthenticationMethod.ReadWrite.All`, `MailboxSettings.ReadWrite` |
 | Intune inventory/actions | `DeviceManagementManagedDevices.ReadWrite.All` |
 | OAuth app discovery | `DelegatedPermissionGrant.Read.All`, `Application.Read.All` |
-| CSP/GDAP onboarding | Microsoft Graph application `DelegatedAdminRelationship.ReadWrite.All`, `DelegatedAdminRelationship.Read.All` in the Partner tenant |
+
 
 ### Application permissions for unattended operations
 
@@ -122,7 +122,7 @@ JWT_SECRET=replace-with-a-long-random-value
 CREDENTIAL_ENCRYPTION_KEY=the-generated-fernet-key
 ENTRA_CLIENT_ID=the-application-client-id
 ENTRA_CLIENT_SECRET=the-secret-value
-PARTNER_TENANT_ID=<CSP partner tenant ID>
+
 ENTRA_REDIRECT_URI=http://localhost:8000/api/auth/microsoft/callback
 ENTRA_PROSPECT_REDIRECT_URI=http://localhost:8000/api/prospect/callback
 FRONTEND_URL=http://localhost:5173
@@ -192,11 +192,12 @@ In the Exchange automation app registration:
    the required cmdlets. `Exchange Administrator` is suitable for initial
    testing but is highly privileged.
 7. Repeat tenant admin consent and Exchange role assignment in every customer
-   tenant. Partner Center/GDAP is not required for this PFX model.
+   tenant. Each customer tenant is authorized directly through its own tenant
+   consent and app permissions.
 
 The repository includes a PowerShell worker in `exchange-worker/`. This
 configuration uses PFX app-only authentication and does not require a device
-code, an administrator UPN, or a Partner Center account at action time:
+code or an administrator UPN at action time:
 
 ```env
 EXCHANGE_AUTH_MODE=certificate
@@ -266,105 +267,26 @@ a real mailbox identity returned by Exchange Online. Offboarding executes only
 the selected steps and reports failure without claiming the remaining steps were
 completed.
 
-## 6. CSP/GDAP testing with a Partner Center integration sandbox
+## 6. Connect multiple client tenants
 
-For software testing, do not begin with a production CSP account unless you
-intend to onboard real customers. Microsoft provides a separate **Partner
-Center integration sandbox** for testing Partner Center API integrations. The
-sandbox is independent from the primary partner account and has its own users,
-customers, subscriptions, and API credentials.
-
-Important limitations:
-
-- You must have a Microsoft CSP partner tenant. Partner Center API access is
-  available to direct-bill partners and indirect providers.
-- The sandbox is for integration testing, not production customer management.
-- Sandbox data is separate from the primary Partner Center account.
-- Sandbox transactions may appear on invoices, but the sandbox invoice is
-  marked as not payable.
-- GDAP approval still requires a customer/test tenant administrator to approve
-  the relationship request.
-
-### Get a Partner Center account for testing
-
-1. Create or use a Microsoft Entra tenant for your software company/MSP.
-2. Apply to become a Microsoft Cloud Solution Provider partner through the
-   [Microsoft AI Cloud Partner Program](https://partner.microsoft.com/partnership).
-3. Complete Microsoft’s business verification and partner enrollment steps.
-   Microsoft may request legal business information, domains, contact details,
-   and verification documents.
-4. In Partner Center, use **Account settings** to confirm your partner profile
-   and whether you are a direct-bill partner or an indirect provider.
-5. Create an **integration sandbox** from the Partner Center sandbox/account
-   settings flow. Do not use the primary partner account for initial API tests.
-6. In the sandbox, open **Settings → Account settings → App management** and
-   register the application used for Partner Center API access. Record the App
-   ID, key/secret, and sandbox domain in a secret manager.
-7. Enable the required Partner Center/GDAP API access and complete admin
-   consent in the partner tenant.
-8. Configure TenantToolbox with the sandbox partner tenant ID:
-
-   ```env
-   PARTNER_TENANT_ID=<sandbox partner tenant ID>
-   ```
-
-9. Use a separate Microsoft 365 test customer tenant. In TenantToolbox open
-   **Clients → CSP / GDAP onboarding**, refresh Partner Center, and use **Map**
-   to import the customer into a local client workspace.
-10. Select **Request GDAP**, enter role-definition IDs copied from the current
-    Partner Center/GDAP role catalog, and create the request. TenantToolbox
-    stores the returned relationship and approval URL; send that URL to a
-    Global Administrator of the test customer tenant.
-11. Refresh the onboarding page after approval. Verify that the relationship is
-    active, the requested roles are least-privilege, and the delegated security
-    group/integrated user is present before testing user actions.
-
-Microsoft’s current API setup guidance is available at:
-
-- [Set up API access in Partner Center](https://learn.microsoft.com/en-us/partner-center/develop/set-up-api-access-in-partner-center)
-- [Microsoft AI Cloud Partner Program](https://partner.microsoft.com/partnership)
-- [GDAP overview](https://learn.microsoft.com/en-us/partner-center/security/gdap-introduction)
-
-A normal Microsoft 365 developer tenant by itself is not a Partner Center
-account and does not provide CSP/GDAP customer-management APIs. TenantToolbox
-therefore presents **CSP/GDAP onboarding as the primary path** and labels the
-existing per-tenant delegated OAuth flow as **Direct OAuth fallback**. Use the
-fallback only for a tenant that cannot yet be managed through your Partner
-Center relationship; it does not create a CSP customer or GDAP relationship.
-
-The onboarding page deliberately asks for verified GDAP role-definition IDs
-instead of guessing IDs. Microsoft’s role catalog and least-privilege
-requirements can change, so copy the IDs from the Partner Center/GDAP setup
-used by your test account. Customer mapping and relationship creation are
-owner-only operations and are recorded in the TenantToolbox audit log.
-
-## 7. Connect multiple client tenants
-
-### Preferred: CSP / GDAP
+TenantToolbox connects tenants directly through Microsoft Entra consent. Delegated administration relationships are not required.
 
 1. Sign in to TenantToolbox as the owner and open **Clients**.
-2. In **CSP / GDAP onboarding**, select **Refresh Partner Center**.
-3. Map each returned CSP customer to a local client workspace.
-4. Create a GDAP request with verified role-definition IDs and an optional
-   delegated security group.
-5. Send the generated **Customer approval** link to the customer administrator.
-6. Refresh until the relationship is active, then verify roles and delegated
-   access before running management actions.
+2. Create or select a client workspace.
+3. Choose **Direct OAuth fallback** for that workspace.
+4. Have an administrator from the customer tenant complete the Microsoft consent
+   flow.
+5. TenantToolbox verifies the tenant with Microsoft Graph and stores the tenant
+   relationship in PostgreSQL.
+6. Grant the TenantToolbox app the required Graph application permissions and
+   admin consent in that customer tenant.
+7. Assign the required Exchange app-only role in that customer tenant.
 
-TenantToolbox uses the Partner Center customer and GDAP relationship records
-for onboarding. It does not silently turn a CSP customer into a direct OAuth
-connection. Relationship creation, customer mapping, and approval-link data
-are auditable.
-
-### Fallback: direct delegated OAuth
-
-For a tenant that is not available through Partner Center, select the relevant
-local client and choose **Direct OAuth fallback**. The client administrator
-signs in and consents to the requested delegated Microsoft Graph permissions.
-TenantToolbox verifies the tenant with Graph `/organization` and stores its
-access/refresh credentials encrypted in PostgreSQL. Reconnect is available when
-consent expires or permissions are expanded. This fallback is intentionally
-secondary to CSP/GDAP and does not grant access to other tenants.
+The same TenantToolbox app credentials are used for all customer tenants. The
+backend requests app-only Graph tokens using each stored customer tenant ID;
+there is no customer tenant list to maintain in `.env`. Each tenant must grant
+consent once, and additional tenants can be added without changing deployment
+configuration.
 
 Each tenant gets its own encrypted credential record. The browser never
 receives refresh tokens, and no client credentials are written to `.env`.

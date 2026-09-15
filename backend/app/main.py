@@ -18,14 +18,13 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import Base, engine, get_db
-from app.models import (Alert, AlertRule, AuditLog, BaselineTemplate, Client, ClientTenant, ComplianceControl, DiscoveredApp, DriftEvent, GdapRelationship,
+from app.models import (Alert, AlertRule, AuditLog, BaselineTemplate, Client, ClientTenant, ComplianceControl, DiscoveredApp, DriftEvent,
                         Organization, ProspectAssessment, Report, ReportSchedule, StaffGroup, StaffGroupMembership, StaffUser,
                         TenantBaselineAssignment, TenantCredential, TenantDeviceSnapshot, TenantLicenseSnapshot, TenantSecureScoreSnapshot,
                         TenantUserSnapshot)
 from app.alerting import ingest_risky_signins, ingest_tenant_alerts
 from app.graph import GraphAPIError, GraphClient
 from app.exchange import ExchangeAutomationClient, ExchangeAutomationError
-from app.gdap import GdapClient, GdapError
 from app.sync import friendly_license_name, sync_tenant
 from app.notifications import send_alert_email, send_psa_ticket, send_psa_webhook
 from app.rate_limit import RateLimitMiddleware
@@ -153,20 +152,6 @@ class ProspectConversionRequest(BaseModel):
     display_name: str | None = None
 
 
-class GdapRelationshipRequest(BaseModel):
-    customer_tenant_id: str
-    display_name: str
-    duration_days: int = 730
-    auto_extend_days: int = 180
-    role_definition_ids: list[str] = Field(default_factory=list)
-    security_group_id: str | None = None
-
-
-class GdapCustomerImportRequest(BaseModel):
-    customer_tenant_id: str
-    display_name: str
-    client_id: str | None = None
-
 
 class UserActionRequest(BaseModel):
     tenant_id: str
@@ -261,75 +246,6 @@ def device_action(tenant_id: str, device_id: str, action: str = Query(...), conf
     db.commit()
     return {"status": "completed", "action": action}
 
-
-@app.get("/api/gdap/customers")
-def gdap_customers(user: StaffUser = Depends(get_current_user)) -> list[dict]:
-    try:
-        return GdapClient().customers()
-    except GdapError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
-@app.post("/api/gdap/customers/import", status_code=status.HTTP_201_CREATED)
-def import_gdap_customer(payload: GdapCustomerImportRequest, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict:
-    tenant_id = payload.customer_tenant_id.strip()
-    display_name = payload.display_name.strip() or tenant_id
-    if not tenant_id:
-        raise HTTPException(status_code=400, detail="Customer tenant ID is required")
-    client = None
-    if payload.client_id:
-        client = db.scalar(select(Client).where(Client.id == payload.client_id, Client.organization_id == user.organization_id))
-        if not client:
-            raise HTTPException(status_code=404, detail="Client not found")
-    existing = db.scalar(select(ClientTenant).where(ClientTenant.tenant_id == tenant_id))
-    if existing:
-        if existing.organization_id != user.organization_id:
-            raise HTTPException(status_code=409, detail="A tenant ID belongs to another organization")
-        if client and existing.client_id and existing.client_id != client.id:
-            raise HTTPException(status_code=409, detail="Tenant is already assigned to another client")
-        if client:
-            existing.client_id = client.id
-        existing.display_name = display_name
-        tenant = existing
-        created = False
-    else:
-        tenant = ClientTenant(organization_id=user.organization_id, client_id=client.id if client else None, tenant_id=tenant_id, display_name=display_name, connection_status="pending")
-        db.add(tenant)
-        db.flush()
-        created = True
-    write_audit(db, user, "gdap.customer.import", tenant.id, {"customer_tenant_id": tenant_id, "client_id": client.id if client else None, "created": created})
-    db.commit()
-    return {"id": tenant.id, "tenant_id": tenant.tenant_id, "display_name": tenant.display_name, "client_id": tenant.client_id, "created": created}
-
-
-@app.get("/api/gdap/relationships")
-def gdap_relationships(customer_tenant_id: str | None = Query(default=None), user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
-    try:
-        relationships = GdapClient().relationships(customer_tenant_id)
-    except GdapError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    local = {item.customer_tenant_id: item for item in db.scalars(select(GdapRelationship).where(GdapRelationship.organization_id == user.organization_id)).all()}
-    normalized = []
-    for item in relationships:
-        customer = item.get("customer") or {}
-        tenant_id = customer.get("tenantId") or item.get("customerTenantId")
-        local_relationship = local.get(tenant_id) if tenant_id else None
-        normalized.append({**item, "customerTenantId": tenant_id, "relationshipStatus": item.get("status") or item.get("relationshipStatus") or "unknown", "localId": local_relationship.id if local_relationship else None, "approvalUrl": item.get("approvalUrl") or item.get("approvalUrlWithConsent")})
-    return normalized
-
-
-@app.post("/api/gdap/relationships")
-def create_gdap_relationship(payload: GdapRelationshipRequest, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict:
-    client_tenant = db.scalar(select(ClientTenant).where(ClientTenant.tenant_id == payload.customer_tenant_id, ClientTenant.organization_id == user.organization_id))
-    try:
-        result = GdapClient().create_relationship(payload.customer_tenant_id, payload.display_name.strip(), payload.duration_days, payload.auto_extend_days, payload.role_definition_ids, payload.security_group_id)
-    except GdapError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    relationship = GdapRelationship(organization_id=user.organization_id, client_tenant_id=client_tenant.id if client_tenant else None, customer_tenant_id=payload.customer_tenant_id, graph_id=result.get("id"), display_name=payload.display_name.strip(), status=result.get("status", "pending"), approval_url=result.get("approvalUrl") or result.get("approvalUrlWithConsent"), details=result)
-    db.add(relationship)
-    write_audit(db, user, "gdap.relationship.create", client_tenant.id if client_tenant else None, {"customer_tenant_id": payload.customer_tenant_id, "relationship_id": relationship.id, "role_definition_ids": payload.role_definition_ids})
-    db.commit()
-    return {"id": relationship.id, "graph_id": relationship.graph_id, "status": relationship.status, "approval_url": relationship.approval_url, "details": relationship.details}
 
 
 @app.get("/api/users/search")

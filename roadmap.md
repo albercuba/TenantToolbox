@@ -18,7 +18,7 @@ This document is the build roadmap. It is organized into phases so an agent can 
 | Cache/Queue | Redis + a task queue (Celery for Python, BullMQ for Node) | Needed for scheduled polling, report generation, remediation jobs |
 | Frontend | React + TypeScript, Vite | SPA dashboard, component reuse across tenant views |
 | Auth (app → user) | OIDC/local auth + optional SSO (Entra ID as IdP) for MSP staff logins | MSP technicians log into TenantToolbox itself |
-| Auth (app → M365 tenants) | **Model A:** multi-tenant app + CSP/GDAP through Partner Center as the primary MSP path. **Model B:** interactive delegated OAuth per tenant as the no-PFX/no-Partner-Center fallback; Exchange PowerShell prompts an authorized admin to sign in when required | Model A scales across customer tenants; Model B supports development and non-CSP tenants without shared credentials |
+| Auth (app → M365 tenants) | Multi-tenant app with per-tenant Microsoft Entra consent and tenant-scoped app-only Graph/Exchange automation | Unattended administration scales across customer tenants without per-tenant `.env` changes |
 | Background jobs | Scheduled polling (Graph API has limited webhook/change-notification coverage) + Graph change notifications where available | Drift detection and alerting need near-real-time signal |
 | Secrets | Vault or Docker secrets / `.env` + encryption at rest for tenant tokens | Refresh tokens per tenant are highly sensitive |
 | Multi-tenancy model in DB | `organization` (the MSP) → `client_tenant` (each M365 tenant) → all resources scoped by `client_tenant_id` | Supports the MSP-to-client-tenant data model |
@@ -33,7 +33,7 @@ Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for se
 - [x] Multi-tenant dashboard — switch between client tenants without re-authenticating
 - [x] Tenant onboarding via direct Microsoft Entra admin consent (single tenant connection)
 - [x] Tenant onboarding via CSV import (interim bulk-import path)
-- [x] Tenant onboarding via Microsoft Partner Center / CSP import with GDAP relationship requests and customer approval links
+
 - [x] Tenant onboarding via "Magic Link" (read-only prospect assessment flow; managed conversion requires normal consent)
 - [x] PSA integration (generic webhook plus ConnectWise, Autotask, and Halo payload adapters) for ticket creation from alerts
 - [x] Local MSP staff authentication with owner/tech roles and owner-only tenant disconnect guardrail
@@ -105,7 +105,7 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 1. [x] Repo scaffold: monorepo with `/backend`, `/frontend`, `/infra` (docker-compose, migrations), including container-safe frontend API proxying
 2. [x] Docker Compose: app server, Postgres, Redis, worker, frontend (dev + prod compose files)
 3. [x] MSP staff auth: first-time setup wizard automatically opens on a new deployment and waits for API readiness; invalid/expired browser tokens are cleared automatically; local email/password + session/JWT; basic RBAC (owner/tech roles)
-4. [x] Azure AD app registration setup docs + admin-consent flow (single tenant first, no GDAP yet)
+4. [x] Microsoft Entra app registration setup docs + multi-tenant admin-consent flow
 5. [x] `client_tenant` model: store tenant ID, name, delegated auth tokens (encrypted), connection status
 6. [x] Client management: create/remove clients, assign tenants during connection, and prevent client removal while tenants remain assigned
 7. [x] "Connect a tenant" flow: working frontend action starts admin-consent URL generation → callback → store refresh token, with safe token-exchange diagnostics and automatic navigation to the connected tenant workspace
@@ -118,9 +118,9 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 
 ### Phase 1 — Multi-tenant core + basic Graph read access
 
-**Progress:** Phase 1 is complete for the implemented single-MSP deployment path: tenant switching UI, CSV import, Graph synchronization, refresh-token handling, normalized user/license/Secure Score snapshots, scheduled polling, per-tenant views, and audit logging are implemented. GDAP/Partner Center remains an external integration path.
+**Progress:** Phase 1 is complete for the implemented single-MSP deployment path: tenant switching UI, CSV import, Graph synchronization, tenant-scoped app-only authentication, normalized user/license/Secure Score snapshots, scheduled polling, per-tenant views, and audit logging are implemented.
 
-1. [x] CSV tenant import interim path; GDAP / Partner Center bulk-import flow remains open
+1. [x] CSV tenant import interim path
 2. [x] Tenant switcher UI (no re-auth needed once connected)
 3. [x] Background worker: scheduled Graph polling per tenant (users, licenses, sign-in logs, security defaults/CA policies) into normalized DB tables, with graceful optional Secure Score handling
 4. [x] Basic per-tenant views: users list, licenses list, Secure Score when `SecurityEvents.Read.All` is consented, tenant identity, and discoverable Sync now actions
@@ -215,7 +215,7 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 
 ### Phase 9 — Hardening & polish
 
-**Progress:** Phase 9 application hardening is complete for rate limiting, Graph retry/backoff, encrypted credentials, confirmation/RBAC guards, backup/restore, bounded load tooling, migration execution, reconnect UI/API, CSP/GDAP onboarding, and the Model B interactive delegated path. TLS termination, live production load execution, and live Microsoft validation remain deployment tasks.
+**Progress:** Phase 9 application hardening is complete for rate limiting, Graph retry/backoff, encrypted credentials, confirmation/RBAC guards, backup/restore, bounded load tooling, migration execution, and reconnect UI/API. TLS termination, live production load execution, and live Microsoft validation remain deployment tasks.
 
 1. [x] Rate-limit and backoff handling for Graph API throttling across many tenants
 2. [x] Token refresh failure handling + reconnect flow when a tenant revokes consent, using restart-safe signed OAuth state
@@ -223,7 +223,7 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 4. [x] Multi-tech guardrails: confirm-before-destructive-action, permission scoping by role
 5. [x] Backup/restore for Postgres in the Docker Compose setup
 6. [x] Load testing polling jobs against tenant count targets (e.g., 50, 200 tenants)
-7. [x] Documentation: complete multi-tenant Azure AD app registration/setup walkthrough, `.env.example`, migration runner, and PSA adapter configuration; GDAP operations remain an external integration guide
+7. [x] Documentation: complete multi-tenant Microsoft Entra app registration/setup walkthrough, `.env.example`, migration runner, and PSA adapter configuration
 
 ---
 
@@ -253,7 +253,7 @@ tenanttoolbox/
 │   └── tests/
 └── docs/
     ├── azure-ad-setup.md
-    ├── gdap-setup.md
+
     └── architecture.md
 ```
 
@@ -276,5 +276,5 @@ tenanttoolbox/
 
 - Backend language: Python/FastAPI vs Node/NestJS
 - PSA integrations to prioritize (ConnectWise, Autotask, Halo, other)
-- Whether GDAP/Partner Center integration is in scope for v1, or start with plain per-tenant admin consent and add GDAP later
+- Which future Microsoft 365 workloads need additional application permissions and dedicated admin roles
 - Whether multi-MSP-org support is ever needed, or this is permanently single-tenant-org deployment
