@@ -21,19 +21,20 @@ function Send-Json($context, [int]$status, $payload) {
     $context.Response.Close()
 }
 
-function Connect-Exchange($tenantId, $adminUpn) {
+function Connect-Exchange($tenantId, $organization, $adminUpn) {
     if ($authMode -eq 'interactive') {
         if (-not $adminUpn) { throw 'exchange_admin_upn is required for interactive Exchange sign-in' }
+        if (-not $organization -or $organization -notmatch '\.onmicrosoft\.com$') { throw 'A verified customer .onmicrosoft.com organization domain is required' }
         # This opens the supported interactive delegated sign-in flow. The
         # caller must be an Exchange administrator in the customer tenant.
-        Connect-ExchangeOnline -UserPrincipalName $adminUpn -Organization $tenantId -ShowBanner:$false
+        Connect-ExchangeOnline -UserPrincipalName $adminUpn -Organization $organization -ShowBanner:$false
         return
     }
     if (-not $appId -or -not $certificatePath -or -not $certificatePassword) { throw 'Exchange certificate worker credentials are not configured' }
     if (-not (Test-Path $certificatePath)) { throw 'Exchange certificate file was not found' }
     $securePassword = ConvertTo-SecureString $certificatePassword -AsPlainText -Force
     $certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new($certificatePath, $securePassword)
-    Connect-ExchangeOnline -AppId $appId -Certificate $certificate -Organization $tenantId -ShowBanner:$false
+    Connect-ExchangeOnline -AppId $appId -Certificate $certificate -Organization ($organization ?? $tenantId) -ShowBanner:$false
 }
 
 function Assert-Request($body) {
@@ -58,11 +59,14 @@ while ($listener.IsListening) {
         $reader = [IO.StreamReader]::new($context.Request.InputStream)
         $body = $reader.ReadToEnd() | ConvertFrom-Json
         Assert-Request $body
-        Connect-Exchange $body.tenant_id $body.exchange_admin_upn
+        Connect-Exchange $body.tenant_id $body.organization $body.exchange_admin_upn
         try {
             switch ($context.Request.Url.AbsolutePath) {
                 '/v1/user-actions/global-address-list' {
-                    Set-Mailbox -Identity $body.user_id -HiddenFromAddressListsEnabled ([bool]$body.hidden)
+                    $hidden = [bool]$body.hidden
+                    Set-Mailbox -Identity $body.user_id -HiddenFromAddressListsEnabled $hidden -Confirm:$false
+                    Send-Json $context 200 @{ status = 'completed'; operation = 'global-address-list'; hidden = $hidden }
+                    continue
                 }
                 '/v1/user-actions/mail-forwarding' {
                     $forwardTo = if ($body.recipient) { $body.recipient } else { $null }

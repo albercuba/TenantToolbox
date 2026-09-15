@@ -352,6 +352,10 @@ def user_action(payload: UserActionRequest, user: StaffUser = Depends(require_pe
         raise HTTPException(status_code=400, detail="A password of at least 12 characters is required")
     if payload.action in {"assign_license", "remove_license"} and not payload.sku_id:
         raise HTTPException(status_code=400, detail="sku_id is required for license actions")
+    if payload.action == "global_address_list":
+        admin_upn = payload.action_data.get("exchange_admin_upn")
+        if not isinstance(admin_upn, str) or "@" not in admin_upn.strip():
+            raise HTTPException(status_code=400, detail="exchange_admin_upn is required for interactive Exchange sign-in")
     client = GraphClient(tenant, tenant.credential)
     try:
         if payload.action == "block": client.set_user_enabled(payload.user_id, False)
@@ -373,7 +377,10 @@ def user_action(payload: UserActionRequest, user: StaffUser = Depends(require_pe
         elif payload.action == "licenses":
             result = client.assign_licenses(payload.user_id, payload.action_data.get("add_licenses", []), payload.action_data.get("remove_sku_ids", []))
         elif payload.action == "global_address_list":
-            result = ExchangeAutomationClient().hide_from_global_address_list(tenant.tenant_id, payload.user_id, bool(payload.action_data.get("hidden", True)))
+            exchange_organization = tenant.primary_domain if (tenant.primary_domain or "").lower().endswith(".onmicrosoft.com") else None
+            if not exchange_organization:
+                raise ExchangeAutomationError("Tenant needs a verified .onmicrosoft.com domain; run Sync now before using Exchange actions")
+            result = ExchangeAutomationClient().hide_from_global_address_list(tenant.tenant_id, payload.user_id, bool(payload.action_data.get("hidden", True)), exchange_organization, payload.action_data.get("exchange_admin_upn").strip())
         elif payload.action == "email_forwarding":
             result = ExchangeAutomationClient().set_forwarding(tenant.tenant_id, payload.user_id, payload.action_data.get("recipient"), bool(payload.action_data.get("keep_copy", True)))
         elif payload.action == "shared_mailboxes":
