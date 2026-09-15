@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from app.graph import GraphClient
 from app.notifications import send_psa_webhook
+from app.sync import friendly_license_name
 
 
 class FakeResponse:
@@ -16,6 +17,11 @@ class FakeResponse:
 
     def json(self):
         return self._payload
+
+
+def test_license_sku_names_are_friendly_with_unknown_fallback():
+    assert friendly_license_name("DEVELOPERPACK_E5") == "Microsoft 365 E5 Developer"
+    assert friendly_license_name("CONTOSO_CUSTOM_PLAN") == "Contoso Custom Plan"
 
 
 def test_graph_security_alerts_are_paginated(monkeypatch):

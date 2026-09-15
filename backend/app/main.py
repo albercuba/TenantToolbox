@@ -12,19 +12,21 @@ from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, st
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import Base, engine, get_db
-from app.models import (Alert, AlertRule, AuditLog, BaselineTemplate, Client, ClientTenant, ComplianceControl, DiscoveredApp, DriftEvent,
+from app.models import (Alert, AlertRule, AuditLog, BaselineTemplate, Client, ClientTenant, ComplianceControl, DiscoveredApp, DriftEvent, GdapRelationship,
                         Organization, ProspectAssessment, Report, ReportSchedule, StaffGroup, StaffGroupMembership, StaffUser,
                         TenantBaselineAssignment, TenantCredential, TenantDeviceSnapshot, TenantLicenseSnapshot, TenantSecureScoreSnapshot,
                         TenantUserSnapshot)
 from app.alerting import ingest_risky_signins, ingest_tenant_alerts
 from app.graph import GraphAPIError, GraphClient
-from app.sync import sync_tenant
+from app.exchange import ExchangeAutomationClient, ExchangeAutomationError
+from app.gdap import GdapClient, GdapError
+from app.sync import friendly_license_name, sync_tenant
 from app.notifications import send_alert_email, send_psa_ticket, send_psa_webhook
 from app.rate_limit import RateLimitMiddleware
 from app.lifecycle import router as lifecycle_router
@@ -150,6 +152,21 @@ class ProspectConversionRequest(BaseModel):
     display_name: str | None = None
 
 
+class GdapRelationshipRequest(BaseModel):
+    customer_tenant_id: str
+    display_name: str
+    duration_days: int = 730
+    auto_extend_days: int = 180
+    role_definition_ids: list[str] = Field(default_factory=list)
+    security_group_id: str | None = None
+
+
+class GdapCustomerImportRequest(BaseModel):
+    customer_tenant_id: str
+    display_name: str
+    client_id: str | None = None
+
+
 class UserActionRequest(BaseModel):
     tenant_id: str
     user_id: str
@@ -157,6 +174,7 @@ class UserActionRequest(BaseModel):
     confirm: bool = False
     password: str | None = None
     sku_id: str | None = None
+    action_data: dict = Field(default_factory=dict)
 
 
 
@@ -243,6 +261,76 @@ def device_action(tenant_id: str, device_id: str, action: str = Query(...), conf
     return {"status": "completed", "action": action}
 
 
+@app.get("/api/gdap/customers")
+def gdap_customers(user: StaffUser = Depends(get_current_user)) -> list[dict]:
+    try:
+        return GdapClient().customers()
+    except GdapError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/gdap/customers/import", status_code=status.HTTP_201_CREATED)
+def import_gdap_customer(payload: GdapCustomerImportRequest, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict:
+    tenant_id = payload.customer_tenant_id.strip()
+    display_name = payload.display_name.strip() or tenant_id
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="Customer tenant ID is required")
+    client = None
+    if payload.client_id:
+        client = db.scalar(select(Client).where(Client.id == payload.client_id, Client.organization_id == user.organization_id))
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+    existing = db.scalar(select(ClientTenant).where(ClientTenant.tenant_id == tenant_id))
+    if existing:
+        if existing.organization_id != user.organization_id:
+            raise HTTPException(status_code=409, detail="A tenant ID belongs to another organization")
+        if client and existing.client_id and existing.client_id != client.id:
+            raise HTTPException(status_code=409, detail="Tenant is already assigned to another client")
+        if client:
+            existing.client_id = client.id
+        existing.display_name = display_name
+        tenant = existing
+        created = False
+    else:
+        tenant = ClientTenant(organization_id=user.organization_id, client_id=client.id if client else None, tenant_id=tenant_id, display_name=display_name, connection_status="pending")
+        db.add(tenant)
+        db.flush()
+        created = True
+    write_audit(db, user, "gdap.customer.import", tenant.id, {"customer_tenant_id": tenant_id, "client_id": client.id if client else None, "created": created})
+    db.commit()
+    return {"id": tenant.id, "tenant_id": tenant.tenant_id, "display_name": tenant.display_name, "client_id": tenant.client_id, "created": created}
+
+
+@app.get("/api/gdap/relationships")
+def gdap_relationships(customer_tenant_id: str | None = Query(default=None), user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
+    try:
+        relationships = GdapClient().relationships(customer_tenant_id)
+    except GdapError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    local = {item.customer_tenant_id: item for item in db.scalars(select(GdapRelationship).where(GdapRelationship.organization_id == user.organization_id)).all()}
+    normalized = []
+    for item in relationships:
+        customer = item.get("customer") or {}
+        tenant_id = customer.get("tenantId") or item.get("customerTenantId")
+        local_relationship = local.get(tenant_id) if tenant_id else None
+        normalized.append({**item, "customerTenantId": tenant_id, "relationshipStatus": item.get("status") or item.get("relationshipStatus") or "unknown", "localId": local_relationship.id if local_relationship else None, "approvalUrl": item.get("approvalUrl") or item.get("approvalUrlWithConsent")})
+    return normalized
+
+
+@app.post("/api/gdap/relationships")
+def create_gdap_relationship(payload: GdapRelationshipRequest, user: StaffUser = Depends(require_owner), db: Session = Depends(get_db)) -> dict:
+    client_tenant = db.scalar(select(ClientTenant).where(ClientTenant.tenant_id == payload.customer_tenant_id, ClientTenant.organization_id == user.organization_id))
+    try:
+        result = GdapClient().create_relationship(payload.customer_tenant_id, payload.display_name.strip(), payload.duration_days, payload.auto_extend_days, payload.role_definition_ids, payload.security_group_id)
+    except GdapError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    relationship = GdapRelationship(organization_id=user.organization_id, client_tenant_id=client_tenant.id if client_tenant else None, customer_tenant_id=payload.customer_tenant_id, graph_id=result.get("id"), display_name=payload.display_name.strip(), status=result.get("status", "pending"), approval_url=result.get("approvalUrl") or result.get("approvalUrlWithConsent"), details=result)
+    db.add(relationship)
+    write_audit(db, user, "gdap.relationship.create", client_tenant.id if client_tenant else None, {"customer_tenant_id": payload.customer_tenant_id, "relationship_id": relationship.id, "role_definition_ids": payload.role_definition_ids})
+    db.commit()
+    return {"id": relationship.id, "graph_id": relationship.graph_id, "status": relationship.status, "approval_url": relationship.approval_url, "details": relationship.details}
+
+
 @app.get("/api/users/search")
 def search_users(query: str = Query(default=""), user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
     statement = select(TenantUserSnapshot, ClientTenant).join(ClientTenant, TenantUserSnapshot.client_tenant_id == ClientTenant.id).where(ClientTenant.organization_id == user.organization_id)
@@ -250,7 +338,7 @@ def search_users(query: str = Query(default=""), user: StaffUser = Depends(get_c
         pattern = f"%{query.lower()}%"
         statement = statement.where(TenantUserSnapshot.display_name.ilike(pattern) | TenantUserSnapshot.user_principal_name.ilike(pattern))
     rows = db.execute(statement.order_by(ClientTenant.display_name, TenantUserSnapshot.display_name)).all()
-    return [{"tenant_id": tenant.id, "tenant_name": tenant.display_name, "user_id": item.graph_id, "display_name": item.display_name, "user_principal_name": item.user_principal_name, "account_enabled": item.account_enabled, "license_types": item.license_types or [], "department": item.department or "", "groups": item.groups or [], "mfa_settings": item.mfa_settings} for item, tenant in rows]
+    return [{"tenant_id": tenant.id, "tenant_name": tenant.display_name, "user_id": item.graph_id, "display_name": item.display_name, "user_principal_name": item.user_principal_name, "account_enabled": item.account_enabled, "license_types": [friendly_license_name(value) for value in (item.license_types or [])], "department": item.department or "", "groups": item.groups or [], "mfa_settings": item.mfa_settings} for item, tenant in rows]
 
 
 @app.post("/api/users/action")
@@ -258,7 +346,7 @@ def user_action(payload: UserActionRequest, user: StaffUser = Depends(require_pe
     if not payload.confirm:
         raise HTTPException(status_code=400, detail="Set confirm=true to execute this action")
     tenant = ensure_tenant_access(payload.tenant_id, user, db)
-    if not tenant.credential or payload.action not in {"block", "unblock", "reset_password", "assign_license", "remove_license", "revoke_sessions"}:
+    if not tenant.credential or payload.action not in {"block", "unblock", "reset_password", "assign_license", "remove_license", "revoke_sessions", "register_mfa", "create_tap", "out_of_office", "m365_groups", "security_groups", "distribution_groups", "licenses", "global_address_list", "email_forwarding", "shared_mailboxes"}:
         raise HTTPException(status_code=409, detail="Unsupported user action or unavailable tenant credential")
     if payload.action == "reset_password" and (not payload.password or len(payload.password) < 12):
         raise HTTPException(status_code=400, detail="A password of at least 12 characters is required")
@@ -271,12 +359,33 @@ def user_action(payload: UserActionRequest, user: StaffUser = Depends(require_pe
         elif payload.action == "reset_password": client.reset_password(payload.user_id, payload.password or "")
         elif payload.action == "assign_license": client.update_license(payload.user_id, payload.sku_id or "", True)
         elif payload.action == "remove_license": client.update_license(payload.user_id, payload.sku_id or "", False)
+        elif payload.action == "register_mfa":
+            methods = payload.action_data.get("methods") or client.user_mfa_methods(payload.user_id)
+            for method in methods: client.clear_authentication_method(payload.user_id, method)
+        elif payload.action == "create_tap":
+            lifetime = max(10, min(int(payload.action_data.get("lifetime_minutes", 60)), 480))
+            result = client.create_temporary_access_pass(payload.user_id, lifetime, payload.action_data.get("start_date_time"), bool(payload.action_data.get("usable_once", True)))
+        elif payload.action == "out_of_office":
+            client.update_automatic_replies(payload.user_id, payload.action_data.get("automatic_replies_setting") or {"status": "disabled"})
+        elif payload.action in {"m365_groups", "security_groups", "distribution_groups"}:
+            for group_id in payload.action_data.get("remove_group_ids", []): client.remove_user_from_group(group_id, payload.user_id)
+            for group_id in payload.action_data.get("add_group_ids", []): client.add_user_to_group(group_id, payload.user_id)
+        elif payload.action == "licenses":
+            result = client.assign_licenses(payload.user_id, payload.action_data.get("add_licenses", []), payload.action_data.get("remove_sku_ids", []))
+        elif payload.action == "global_address_list":
+            result = ExchangeAutomationClient().hide_from_global_address_list(tenant.tenant_id, payload.user_id, bool(payload.action_data.get("hidden", True)))
+        elif payload.action == "email_forwarding":
+            result = ExchangeAutomationClient().set_forwarding(tenant.tenant_id, payload.user_id, payload.action_data.get("recipient"), bool(payload.action_data.get("keep_copy", True)))
+        elif payload.action == "shared_mailboxes":
+            result = ExchangeAutomationClient().set_shared_mailbox_permissions(tenant.tenant_id, payload.user_id, payload.action_data.get("permissions", []))
         else: client.revoke_sessions(payload.user_id)
-    except GraphAPIError as exc:
+    except (GraphAPIError, ExchangeAutomationError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    write_audit(db, user, f"user.{payload.action}", tenant.id, {"user_id": payload.user_id})
+    write_audit(db, user, f"user.{payload.action}", tenant.id, {"user_id": payload.user_id, "action_data": payload.action_data})
     db.commit()
-    return {"status": "completed", "action": payload.action}
+    response = {"status": "completed", "action": payload.action}
+    if payload.action == "create_tap": response["temporary_access_pass"] = result.get("temporaryAccessPass", "")
+    return response
 
 
 @app.post("/api/users/offboard")
@@ -710,7 +819,7 @@ def microsoft_start(client_id: str | None = Query(default=None), user: StaffUser
     if not settings.entra_client_id:
         raise HTTPException(status_code=503, detail="ENTRA_CLIENT_ID is not configured")
     state = create_oauth_state(user.id, client_id=client_id)
-    params = {"client_id": settings.entra_client_id, "response_type": "code", "redirect_uri": settings.entra_redirect_uri, "response_mode": "query", "scope": "openid profile offline_access User.Read User.Read.All Directory.Read.All GroupMember.Read.All UserAuthenticationMethod.Read.All Organization.Read.All", "state": state}
+    params = {"client_id": settings.entra_client_id, "response_type": "code", "redirect_uri": settings.entra_redirect_uri, "response_mode": "query", "scope": "openid profile offline_access User.Read User.Read.All User.ReadWrite.All Directory.Read.All Directory.ReadWrite.All GroupMember.Read.All GroupMember.ReadWrite.All UserAuthenticationMethod.Read.All UserAuthenticationMethod.ReadWrite.All MailboxSettings.ReadWrite Organization.Read.All", "state": state}
     return {"authorization_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" + urlencode(params)}
 
 
@@ -784,7 +893,7 @@ def reconnect_tenant(tenant_id: str, user: StaffUser = Depends(require_permissio
     if not settings.entra_client_id:
         raise HTTPException(status_code=503, detail="ENTRA_CLIENT_ID is not configured")
     state = create_oauth_state(user.id, tenant.id, tenant.client_id)
-    params = {"client_id": settings.entra_client_id, "response_type": "code", "redirect_uri": settings.entra_redirect_uri, "response_mode": "query", "scope": "openid profile offline_access User.Read User.Read.All Directory.Read.All GroupMember.Read.All UserAuthenticationMethod.Read.All Organization.Read.All", "state": state}
+    params = {"client_id": settings.entra_client_id, "response_type": "code", "redirect_uri": settings.entra_redirect_uri, "response_mode": "query", "scope": "openid profile offline_access User.Read User.Read.All User.ReadWrite.All Directory.Read.All Directory.ReadWrite.All GroupMember.Read.All GroupMember.ReadWrite.All UserAuthenticationMethod.Read.All UserAuthenticationMethod.ReadWrite.All MailboxSettings.ReadWrite Organization.Read.All", "state": state}
     return {"authorization_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" + urlencode(params), "tenant_id": tenant.id}
 
 
@@ -804,7 +913,7 @@ def microsoft_callback(code: str | None = Query(default=None), state: str | None
         raise HTTPException(status_code=400, detail=error or "Microsoft authorization was not completed")
     if not settings.entra_client_id or not settings.entra_client_secret:
         raise HTTPException(status_code=503, detail="Microsoft OAuth is not configured")
-    token_response = httpx.post("https://login.microsoftonline.com/common/oauth2/v2.0/token", data={"client_id": settings.entra_client_id, "client_secret": settings.entra_client_secret, "code": code, "redirect_uri": settings.entra_redirect_uri, "grant_type": "authorization_code", "scope": "openid profile offline_access User.Read User.Read.All Directory.Read.All GroupMember.Read.All UserAuthenticationMethod.Read.All Organization.Read.All"}, timeout=15)
+    token_response = httpx.post("https://login.microsoftonline.com/common/oauth2/v2.0/token", data={"client_id": settings.entra_client_id, "client_secret": settings.entra_client_secret, "code": code, "redirect_uri": settings.entra_redirect_uri, "grant_type": "authorization_code", "scope": "openid profile offline_access User.Read User.Read.All User.ReadWrite.All Directory.Read.All Directory.ReadWrite.All GroupMember.Read.All GroupMember.ReadWrite.All UserAuthenticationMethod.Read.All UserAuthenticationMethod.ReadWrite.All MailboxSettings.ReadWrite Organization.Read.All"}, timeout=15)
     if token_response.is_error:
         try:
             error_payload = token_response.json()
@@ -1116,7 +1225,7 @@ def list_tenant_users(tenant_id: str, user: StaffUser = Depends(get_current_user
 @app.get("/api/tenants/{tenant_id}/licenses")
 def list_tenant_licenses(tenant_id: str, user: StaffUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
     ensure_tenant_access(tenant_id, user, db)
-    return [{"sku_id": item.sku_id, "sku_part_number": item.sku_part_number, "consumed_units": item.consumed_units, "enabled_units": item.enabled_units, "synced_at": item.synced_at} for item in db.scalars(select(TenantLicenseSnapshot).where(TenantLicenseSnapshot.client_tenant_id == tenant_id).order_by(TenantLicenseSnapshot.sku_part_number)).all()]
+    return [{"sku_id": item.sku_id, "sku_part_number": item.sku_part_number, "display_name": friendly_license_name(item.sku_part_number), "consumed_units": item.consumed_units, "enabled_units": item.enabled_units, "synced_at": item.synced_at} for item in db.scalars(select(TenantLicenseSnapshot).where(TenantLicenseSnapshot.client_tenant_id == tenant_id).order_by(TenantLicenseSnapshot.sku_part_number)).all()]
 
 
 @app.get("/api/tenants/{tenant_id}/secure-score")

@@ -83,6 +83,22 @@ class ClientTenant(Base):
     credential: Mapped["TenantCredential | None"] = relationship(back_populates="tenant", uselist=False, cascade="all, delete-orphan")
 
 
+class GdapRelationship(Base):
+    __tablename__ = "gdap_relationship"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), index=True)
+    client_tenant_id: Mapped[str | None] = mapped_column(ForeignKey("client_tenant.id", ondelete="SET NULL"), index=True, nullable=True)
+    customer_tenant_id: Mapped[str] = mapped_column(String(36), index=True)
+    graph_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    display_name: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(30), default="pending")
+    approval_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+
 class TenantCredential(Base):
     __tablename__ = "tenant_credential"
     __table_args__ = (UniqueConstraint("client_tenant_id"),)

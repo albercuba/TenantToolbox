@@ -23,6 +23,9 @@ class Settings:
     psa_webhook_url: str | None = os.getenv("PSA_WEBHOOK_URL")
     psa_vendor: str = os.getenv("PSA_VENDOR", "generic")
     auto_remediation_enabled: bool = os.getenv("AUTO_REMEDIATION_ENABLED", "false").lower() == "true"
+    exchange_automation_url: str | None = os.getenv("EXCHANGE_AUTOMATION_URL")
+    exchange_automation_token: str | None = os.getenv("EXCHANGE_AUTOMATION_TOKEN")
+    partner_tenant_id: str | None = os.getenv("PARTNER_TENANT_ID")
 
 
 settings = Settings()

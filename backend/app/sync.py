@@ -18,17 +18,40 @@ from app.models import (
 
 
 LICENSE_DISPLAY_NAMES = {
-    "O365_BUSINESS_PREMIUM": "Microsoft 365 Business Premium",
-    "O365_BUSINESS_ESSENTIALS": "Microsoft 365 Business Basic",
-    "SMB_BUSINESS_PREMIUM": "Microsoft 365 Business Premium",
-    "SMB_BUSINESS": "Microsoft 365 Business Basic",
-    "SPE_E3": "Microsoft 365 E3",
-    "SPE_E5": "Microsoft 365 E5",
+    "DEVELOPERPACK_E5": "Microsoft 365 E5 Developer",
     "ENTERPRISEPACK": "Office 365 E3",
     "ENTERPRISEPREMIUM": "Office 365 E5",
-    "INTUNE_A": "Intune",
+    "EXCHANGESTANDARD": "Exchange Online (Plan 1)",
+    "EXCHANGEENTERPRISE": "Exchange Online (Plan 2)",
+    "EXCHANGE_S_STANDARD": "Exchange Online Kiosk",
+    "EXCHANGE_S_ENTERPRISE": "Exchange Online (Plan 2)",
+    "INTUNE_A": "Microsoft Intune Plan 1",
+    "MCOMEETADV": "Microsoft Teams Audio Conferencing",
+    "O365_BUSINESS_ESSENTIALS": "Microsoft 365 Business Basic",
+    "O365_BUSINESS_PREMIUM": "Microsoft 365 Business Premium",
+    "O365_BUSINESS": "Microsoft 365 Apps for business",
+    "OFFICESUBSCRIPTION": "Microsoft 365 Apps for enterprise",
+    "POWER_BI_PRO": "Power BI Pro",
     "POWER_BI_STANDARD": "Power BI (free)",
+    "PROJECTPREMIUM": "Planner and Project Plan 3",
+    "PROJECTPROFESSIONAL": "Project Plan 5",
+    "SMB_BUSINESS": "Microsoft 365 Business Basic",
+    "SMB_BUSINESS_PREMIUM": "Microsoft 365 Business Premium",
+    "SPE_E3": "Microsoft 365 E3",
+    "SPE_E5": "Microsoft 365 E5",
+    "STANDARDPACK": "Office 365 E1",
+    "VISIOCLIENT": "Visio Plan 2",
+    "VISIOONLINE_PLAN1": "Visio Plan 1",
 }
+
+
+def friendly_license_name(sku_part_number: str) -> str:
+    """Return a readable label while retaining a useful fallback for new SKUs."""
+    if sku_part_number in LICENSE_DISPLAY_NAMES:
+        return LICENSE_DISPLAY_NAMES[sku_part_number]
+    words = sku_part_number.replace("_", " ").replace("-", " ").lower().split()
+    replacements = {"o365": "Microsoft 365", "m365": "Microsoft 365", "e": "E", "a": "A"}
+    return " ".join(replacements.get(word, word.capitalize()) for word in words) or "Unknown license"
 
 
 def sync_tenant(db: Session, tenant: ClientTenant) -> dict[str, int | str]:
@@ -56,7 +79,7 @@ def sync_tenant(db: Session, tenant: ClientTenant) -> dict[str, int | str]:
 
     db.query(TenantUserSnapshot).filter_by(client_tenant_id=tenant.id).delete()
     db.query(TenantLicenseSnapshot).filter_by(client_tenant_id=tenant.id).delete()
-    license_names = {item.get("skuId"): LICENSE_DISPLAY_NAMES.get(item.get("skuPartNumber", ""), item.get("skuPartNumber")) for item in licenses if item.get("skuId") and item.get("skuPartNumber")}
+    license_names = {item.get("skuId"): friendly_license_name(item.get("skuPartNumber", "")) for item in licenses if item.get("skuId") and item.get("skuPartNumber")}
     for user in users:
         graph_id = user.get("id", "")
         try:

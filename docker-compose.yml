@@ -12,6 +12,7 @@ services:
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Set CREDENTIAL_ENCRYPTION_KEY in .env}
       ENTRA_CLIENT_ID: ${ENTRA_CLIENT_ID:-}
       ENTRA_CLIENT_SECRET: ${ENTRA_CLIENT_SECRET:-}
+      PARTNER_TENANT_ID: ${PARTNER_TENANT_ID:-}
       ENTRA_REDIRECT_URI: ${ENTRA_REDIRECT_URI:-http://localhost:8000/api/auth/microsoft/callback}
       ENTRA_PROSPECT_REDIRECT_URI: ${ENTRA_PROSPECT_REDIRECT_URI:-http://localhost:8000/api/prospect/callback}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
@@ -25,6 +26,8 @@ services:
       PSA_VENDOR: ${PSA_VENDOR:-generic}
       PSA_WEBHOOK_URL: ${PSA_WEBHOOK_URL:-}
       AUTO_REMEDIATION_ENABLED: ${AUTO_REMEDIATION_ENABLED:-false}
+      EXCHANGE_AUTOMATION_URL: ${EXCHANGE_AUTOMATION_URL:-}
+      EXCHANGE_AUTOMATION_TOKEN: ${EXCHANGE_AUTOMATION_TOKEN:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -41,6 +44,8 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Set CREDENTIAL_ENCRYPTION_KEY in .env}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      EXCHANGE_AUTOMATION_URL: ${EXCHANGE_AUTOMATION_URL:-}
+      EXCHANGE_AUTOMATION_TOKEN: ${EXCHANGE_AUTOMATION_TOKEN:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,6 +63,17 @@ services:
       VITE_API_PROXY_TARGET: http://backend:8000
     depends_on:
       - backend
+
+  exchange-worker:
+    build: ./exchange-worker
+    environment:
+      EXCHANGE_AUTOMATION_TOKEN: ${EXCHANGE_AUTOMATION_TOKEN:-}
+      EXCHANGE_AUTH_MODE: ${EXCHANGE_AUTH_MODE:-interactive}
+      EXCHANGE_APP_ID: ${EXCHANGE_APP_ID:-}
+      EXCHANGE_CERTIFICATE_PATH: /run/secrets/exchange.pfx
+      EXCHANGE_CERTIFICATE_PASSWORD: ${EXCHANGE_CERTIFICATE_PASSWORD:-}
+      EXCHANGE_ALLOWED_TENANT_IDS: ${EXCHANGE_ALLOWED_TENANT_IDS:-}
+    restart: unless-stopped
 
   postgres:
     image: postgres:16-alpine

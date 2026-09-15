@@ -37,7 +37,7 @@ class GraphClient:
                 "client_secret": settings.entra_client_secret,
                 "grant_type": "refresh_token",
                 "refresh_token": decrypt_credential(self.credential.encrypted_refresh_token),
-                "scope": "openid profile offline_access User.Read User.Read.All Directory.Read.All GroupMember.Read.All UserAuthenticationMethod.Read.All Organization.Read.All",
+                "scope": "openid profile offline_access User.Read User.Read.All User.ReadWrite.All Directory.Read.All Directory.ReadWrite.All GroupMember.Read.All GroupMember.ReadWrite.All UserAuthenticationMethod.Read.All UserAuthenticationMethod.ReadWrite.All MailboxSettings.ReadWrite Organization.Read.All",
             },
             timeout=15,
         )
@@ -154,6 +154,26 @@ class GraphClient:
 
     def revoke_sessions(self, user_id: str) -> None:
         self._request("POST", f"users/{user_id}/revokeSignInSessions")
+
+    def add_user_to_group(self, group_id: str, user_id: str) -> None:
+        self._request("POST", f"groups/{group_id}/members/$ref", {"@odata.id": f"https://graph.microsoft.com/v1.0/directoryObjects/{user_id}"})
+
+    def clear_authentication_method(self, user_id: str, method: dict) -> None:
+        method_types = {"#microsoft.graph.microsoftAuthenticatorAuthenticationMethod": "microsoftAuthenticatorMethods", "#microsoft.graph.phoneAuthenticationMethod": "phoneMethods", "#microsoft.graph.fido2AuthenticationMethod": "fido2Methods", "#microsoft.graph.windowsHelloForBusinessAuthenticationMethod": "windowsHelloForBusinessMethods", "#microsoft.graph.emailAuthenticationMethod": "emailMethods", "#microsoft.graph.temporaryAccessPassAuthenticationMethod": "temporaryAccessPassMethods"}
+        collection = method_types.get(method.get("@odata.type"))
+        if not collection or not method.get("id"):
+            raise GraphAPIError("Unsupported or incomplete authentication method")
+        self._request("DELETE", f"users/{user_id}/authentication/{collection}/{method['id']}")
+
+    def create_temporary_access_pass(self, user_id: str, lifetime_minutes: int, start_date_time: str | None = None, usable_once: bool = True) -> dict:
+        from datetime import datetime, timezone
+        return self._request("POST", f"users/{user_id}/authentication/temporaryAccessPassMethods", {"startDateTime": start_date_time or datetime.now(timezone.utc).isoformat(), "lifetimeInMinutes": lifetime_minutes, "isUsableOnce": usable_once})
+
+    def update_automatic_replies(self, user_id: str, setting: dict) -> None:
+        self._request("PATCH", f"users/{user_id}/mailboxSettings", {"automaticRepliesSetting": setting})
+
+    def assign_licenses(self, user_id: str, add_licenses: list[dict], remove_sku_ids: list[str]) -> dict:
+        return self._request("POST", f"users/{user_id}/assignLicense", {"addLicenses": add_licenses, "removeLicenses": remove_sku_ids})
 
     def reset_password(self, user_id: str, password: str) -> None:
         self._request("PATCH", f"users/{user_id}", {"passwordProfile": {"password": password, "forceChangePasswordNextSignIn": True}})

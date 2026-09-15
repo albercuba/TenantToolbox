@@ -18,7 +18,7 @@ This document is the build roadmap. It is organized into phases so an agent can 
 | Cache/Queue | Redis + a task queue (Celery for Python, BullMQ for Node) | Needed for scheduled polling, report generation, remediation jobs |
 | Frontend | React + TypeScript, Vite | SPA dashboard, component reuse across tenant views |
 | Auth (app → user) | OIDC/local auth + optional SSO (Entra ID as IdP) for MSP staff logins | MSP technicians log into TenantToolbox itself |
-| Auth (app → M365 tenants) | Azure AD **multi-tenant app registration** + **GDAP** (Granular Delegated Admin Privileges) via Microsoft Partner Center, falling back to per-tenant admin consent for non-CSP relationships | This provides delegated access across client tenants without shared credentials |
+| Auth (app → M365 tenants) | **Model A:** multi-tenant app + CSP/GDAP through Partner Center as the primary MSP path. **Model B:** interactive delegated OAuth per tenant as the no-PFX/no-Partner-Center fallback; Exchange PowerShell prompts an authorized admin to sign in when required | Model A scales across customer tenants; Model B supports development and non-CSP tenants without shared credentials |
 | Background jobs | Scheduled polling (Graph API has limited webhook/change-notification coverage) + Graph change notifications where available | Drift detection and alerting need near-real-time signal |
 | Secrets | Vault or Docker secrets / `.env` + encryption at rest for tenant tokens | Refresh tokens per tenant are highly sensitive |
 | Multi-tenancy model in DB | `organization` (the MSP) → `client_tenant` (each M365 tenant) → all resources scoped by `client_tenant_id` | Supports the MSP-to-client-tenant data model |
@@ -33,7 +33,7 @@ Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for se
 - [x] Multi-tenant dashboard — switch between client tenants without re-authenticating
 - [x] Tenant onboarding via direct Microsoft Entra admin consent (single tenant connection)
 - [x] Tenant onboarding via CSV import (interim bulk-import path)
-- [ ] Tenant onboarding via Microsoft Partner Center / CSP import
+- [x] Tenant onboarding via Microsoft Partner Center / CSP import with GDAP relationship requests and customer approval links
 - [x] Tenant onboarding via "Magic Link" (read-only prospect assessment flow; managed conversion requires normal consent)
 - [x] PSA integration (generic webhook plus ConnectWise, Autotask, and Halo payload adapters) for ticket creation from alerts
 - [x] Local MSP staff authentication with owner/tech roles and owner-only tenant disconnect guardrail
@@ -66,6 +66,7 @@ Decide early whether TenantToolbox is single-MSP-per-deployment (simplest for se
 - [x] Guided offboarding workflow state machine: revoke sessions, remove licenses, remove groups, and disable account; mailbox conversion is explicitly delegated to Exchange administration because Graph has no supported conversion endpoint
 - [x] User groups (MSP-defined, not just AD groups) for bulk targeting during rollout/offboarding
 - [x] Distribution list management (Graph-backed create/list; membership and deletion remain Exchange/Graph permission dependent)
+- [x] Model B interactive delegated OAuth path for supported Graph operations and explicit administrator sign-in for Exchange PowerShell operations; unattended Exchange automation remains an optional certificate/managed-identity mode
 
 ### 3.4 Intune Autopilot (device management)
 - [x] Baseline device compliance policy templates, deployable per tenant
@@ -214,7 +215,7 @@ The frontend must use the shared `../Templates/PharmaPMS/ui-template` as its vis
 
 ### Phase 9 — Hardening & polish
 
-**Progress:** Phase 9 application hardening is complete for rate limiting, Graph retry/backoff, encrypted credentials, confirmation/RBAC guards, backup/restore, bounded load tooling, migration execution, and reconnect UI/API. TLS termination, live production load execution, and GDAP operations remain deployment tasks.
+**Progress:** Phase 9 application hardening is complete for rate limiting, Graph retry/backoff, encrypted credentials, confirmation/RBAC guards, backup/restore, bounded load tooling, migration execution, reconnect UI/API, CSP/GDAP onboarding, and the Model B interactive delegated path. TLS termination, live production load execution, and live Microsoft validation remain deployment tasks.
 
 1. [x] Rate-limit and backoff handling for Graph API throttling across many tenants
 2. [x] Token refresh failure handling + reconnect flow when a tenant revokes consent, using restart-safe signed OAuth state
