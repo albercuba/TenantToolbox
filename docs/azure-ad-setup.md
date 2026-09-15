@@ -116,61 +116,70 @@ POST /v1/user-actions/shared-mailbox-permissions
 ```
 
 Each request includes `tenant_id`, `user_id`, and the operation-specific payload.
-The worker must validate the tenant allowlist and return a non-2xx response on
-failure. By default the worker uses **interactive delegated authentication**:
-the Exchange administrator supplied in the action wizard signs in explicitly
-when the Exchange PowerShell operation starts. Configure the API with a private
-network URL and a random bearer token:
+The worker validates the tenant allowlist and returns a non-2xx response on
+failure. In the PFX mode used by this deployment, Exchange PowerShell runs
+app-only and unattended. Configure the API with a private network URL and a
+random bearer token:
 
 ```env
 EXCHANGE_AUTOMATION_URL=http://exchange-worker:8080
 EXCHANGE_AUTOMATION_TOKEN=replace-with-a-long-random-worker-token
 ```
 
-The worker's Entra app registration needs Exchange Online application
-permissions appropriate to the runbook and admin consent. Store its certificate
-in the worker's secret store or Docker secret, never in this repository or in
-TenantToolbox's `.env`. Do not expose the worker publicly; restrict its network
-access to the TenantToolbox backend and require the bearer token.
+The worker's Entra app registration needs the Exchange Online application
+permission `Exchange.ManageAsApp`, an Exchange role assignment, and admin
+consent in every customer tenant where it will operate. Store the PFX in the
+worker's secret store or protected Docker-mounted file, never in this repository
+or in TenantToolbox's `.env`. Do not expose the worker publicly; restrict its
+network access to the TenantToolbox backend and require the bearer token.
 
-The repository includes an optional PowerShell-based worker in
-`exchange-worker/`. For Model B, configure interactive mode and no certificate
-or Partner Center account is required:
+### Create and register the Exchange certificate
 
-```env
-EXCHANGE_AUTH_MODE=interactive
-EXCHANGE_AUTOMATION_TOKEN=<random-private-worker-token>
-```
-
-In interactive mode, the tenant allowlist is managed through TenantToolbox:
-when an owner imports/maps a CSP customer or adds a tenant through the web UI,
-the backend authorizes that mapped tenant before forwarding an Exchange action
-to the private worker. No customer tenant IDs need to be added to `.env` and no
-worker restart is required when customers are added or removed.
-
-The Exchange administrator must have the required Exchange RBAC role and
-complete the Microsoft device-code sign-in when an Exchange action runs. In a
-Docker deployment, watch the worker output for the one-time code:
+For testing, create a self-signed RSA certificate on a secure workstation. The
+private key stays in the PFX and must never be committed:
 
 ```sh
-docker compose logs -f exchange-worker
+mkdir -p exchange-cert
+cd exchange-cert
+openssl req -x509 -newkey rsa:2048 -keyout exchange.key -out exchange.crt -days 365 -nodes -subj "/CN=TenantToolbox Exchange Automation"
+openssl pkcs12 -export -out exchange.pfx -inkey exchange.key -in exchange.crt -name TenantToolbox-Exchange
+openssl x509 -in exchange.crt -outform der -out exchange.cer
 ```
 
-Open `https://microsoft.com/devicelogin` in a browser and enter that code. The worker also
-supports optional unattended certificate mode for deployments that explicitly
-need background automation. Certificate mode retains a static environment
-allowlist because it is not driven by an interactive MSP session:
+In the Exchange automation app registration:
+
+1. Open **Certificates & secrets → Upload certificate**.
+2. Upload `exchange.cer`; never upload `exchange.pfx`.
+3. Record the application/client ID.
+4. Under **API permissions**, add **Office 365 Exchange Online → Application
+   permissions → Exchange.ManageAsApp**.
+5. Grant admin consent.
+6. Assign the app an Exchange role, preferably a custom role group limited to
+   the required cmdlets. `Exchange Administrator` is suitable for initial
+   testing but is highly privileged.
+7. Repeat tenant admin consent and Exchange role assignment in every customer
+   tenant. Partner Center/GDAP is not required for this PFX model.
+
+The repository includes a PowerShell worker in `exchange-worker/`. This
+configuration uses PFX app-only authentication and does not require a device
+code, an administrator UPN, or a Partner Center account at action time:
 
 ```env
 EXCHANGE_AUTH_MODE=certificate
+EXCHANGE_AUTOMATION_TOKEN=<random-private-worker-token>
 EXCHANGE_APP_ID=<Exchange app registration client ID>
 EXCHANGE_CERTIFICATE_FILE=./secrets/exchange.pfx
 EXCHANGE_CERTIFICATE_PASSWORD=<certificate password>
-EXCHANGE_ALLOWED_TENANT_IDS=<comma-separated tenant IDs>
+EXCHANGE_ALLOWED_TENANT_IDS=<comma-separated authorized tenant IDs>
 ```
 
+The tenant allowlist remains deployment configuration for certificate mode. Add
+each authorized customer tenant ID before using Exchange actions and recreate
+the worker after changing the list. The backend still validates that the target
+tenant belongs to the authenticated TenantToolbox organization.
+
 Place the PFX file at the configured path with restrictive permissions, then
-start the optional service:
+start the normal stack:
 
 ```sh
 mkdir -p secrets
@@ -179,12 +188,16 @@ chmod 600 secrets/exchange.pfx
 docker compose up -d --build exchange-worker
 ```
 
-In interactive mode the worker uses `Connect-ExchangeOnline` with the
-administrator's delegated sign-in. In certificate mode it uses app-only auth.
-Grant only the Exchange permissions required by your organization and restrict
-the tenant allowlist to tenants authorized for automation. Interactive mode is
-intended for explicit, operator-triggered actions; it is not an unattended job
-runner.
+The worker uses:
+
+```powershell
+Connect-ExchangeOnline -AppId <app-id> -Certificate <certificate> -Organization <tenant>.onmicrosoft.com
+```
+
+It then executes the requested Exchange cmdlet, such as
+`Set-Mailbox -HiddenFromAddressListsEnabled`, and disconnects. Grant only the
+Exchange permissions required by your organization and restrict the tenant
+allowlist to authorized customer tenants.
 
 Start or restart the stack:
 
