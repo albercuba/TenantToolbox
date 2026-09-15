@@ -116,10 +116,11 @@ POST /v1/user-actions/shared-mailbox-permissions
 ```
 
 Each request includes `tenant_id`, `user_id`, and the operation-specific payload.
-The worker validates the tenant allowlist and returns a non-2xx response on
-failure. In the PFX mode used by this deployment, Exchange PowerShell runs
-app-only and unattended. Configure the API with a private network URL and a
-random bearer token:
+The backend verifies that the requested tenant is mapped to the authenticated
+TenantToolbox staff member before calling the worker. The worker returns a
+non-2xx response on failure. In the PFX mode used by this deployment, Exchange
+PowerShell runs app-only and unattended. Configure the API with a private
+network URL and a random bearer token:
 
 ```env
 EXCHANGE_AUTOMATION_URL=http://exchange-worker:8080
@@ -198,8 +199,9 @@ Connect-ExchangeOnline -AppId <app-id> -Certificate <certificate> -Organization 
 
 It then executes the requested Exchange cmdlet, such as
 `Set-Mailbox -HiddenFromAddressListsEnabled`, and disconnects. Grant only the
-Exchange permissions required by your organization and restrict the tenant
-allowlist to authorized customer tenants.
+Exchange permissions required by your organization. Tenant access is controlled
+by the mapped-tenant authorization in TenantToolbox; customer tenant IDs do not
+need to be maintained in `.env`.
 
 Start or restart the stack:
 
@@ -209,6 +211,21 @@ docker compose up -d --build
 
 The first-time wizard at `http://localhost:5173` creates the initial
 TenantToolbox owner account.
+
+### Running user actions
+
+User actions are opened from **Users & lifecycle → Actions**. Configure the
+operation, use **Next** to move through the workflow, and review the final
+summary in the styled action drawer. The final review step is the confirmation:
+clicking **Continue & Run** starts the operation immediately and does not show a
+second browser-native confirmation dialog. While the request is running, the
+button changes to **Running…**. A successful operation is reported in the
+application notice and recorded in the audit log; failures are shown there with
+the returned error message.
+
+For Exchange-backed actions such as **Global Address List**, **Manage Email
+Forwarding**, and **Manage Shared Mailboxes**, the final review also identifies
+that the request runs through the certificate-authenticated Exchange worker.
 
 ## 6. CSP/GDAP testing with a Partner Center integration sandbox
 
