@@ -170,13 +170,14 @@ EXCHANGE_AUTOMATION_TOKEN=<random-private-worker-token>
 EXCHANGE_APP_ID=<Exchange app registration client ID>
 EXCHANGE_CERTIFICATE_FILE=./secrets/exchange.pfx
 EXCHANGE_CERTIFICATE_PASSWORD=<certificate password>
-EXCHANGE_ALLOWED_TENANT_IDS=<comma-separated authorized tenant IDs>
 ```
 
-The tenant allowlist remains deployment configuration for certificate mode. Add
-each authorized customer tenant ID before using Exchange actions and recreate
-the worker after changing the list. The backend still validates that the target
-tenant belongs to the authenticated TenantToolbox organization.
+Customer tenant authorization is managed through TenantToolbox. When an owner
+adds or maps a tenant in the web UI, the backend authorizes that mapped tenant
+for the authenticated staff member before calling the private worker. No
+customer tenant IDs need to be added to `.env`, and adding a tenant does not
+require a worker restart. The worker accepts requests only from the backend
+through the private network and shared bearer token.
 
 Place the PFX file at the configured path with restrictive permissions, then
 start the normal stack:

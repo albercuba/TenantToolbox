@@ -8,7 +8,7 @@ $workerToken = $env:EXCHANGE_AUTOMATION_TOKEN
 $appId = $env:EXCHANGE_APP_ID
 $certificatePath = $env:EXCHANGE_CERTIFICATE_PATH
 $certificatePassword = $env:EXCHANGE_CERTIFICATE_PASSWORD
-$allowedTenants = @($env:EXCHANGE_ALLOWED_TENANT_IDS -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+
 
 function Send-Json($context, [int]$status, $payload) {
     $bytes = [Text.Encoding]::UTF8.GetBytes(($payload | ConvertTo-Json -Depth 8 -Compress))
@@ -22,7 +22,9 @@ function Send-Json($context, [int]$status, $payload) {
 
 function Assert-Request($body) {
     if (-not $body.tenant_id -or -not $body.user_id -or -not $body.organization) { throw 'tenant_id, user_id, and organization are required' }
-    if ($allowedTenants.Count -eq 0 -or $allowedTenants -notcontains $body.tenant_id) { throw 'tenant_id is not allowlisted for this worker' }
+    # The backend is authoritative for tenant authorization. It validates the
+    # authenticated staff user, organization, and mapped ClientTenant before
+    # calling this private worker with the shared bearer token.
     if ($body.organization -notmatch '\.onmicrosoft\.com$') { throw 'A verified customer .onmicrosoft.com organization domain is required' }
 }
 

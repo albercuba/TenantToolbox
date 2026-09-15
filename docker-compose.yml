@@ -72,7 +72,7 @@ services:
       EXCHANGE_APP_ID: ${EXCHANGE_APP_ID:-}
       EXCHANGE_CERTIFICATE_PATH: /run/secrets/exchange.pfx
       EXCHANGE_CERTIFICATE_PASSWORD: ${EXCHANGE_CERTIFICATE_PASSWORD:-}
-      EXCHANGE_ALLOWED_TENANT_IDS: ${EXCHANGE_ALLOWED_TENANT_IDS:-}
+
     volumes:
       - ${EXCHANGE_CERTIFICATE_FILE:-./secrets/exchange.pfx}:/run/secrets/exchange.pfx:ro
     restart: unless-stopped
