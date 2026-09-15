@@ -66,6 +66,8 @@ services:
 
   exchange-worker:
     build: ./exchange-worker
+    # The PFX is mounted mode 600 from the host; the isolated worker reads it as root.
+    user: "0:0"
     environment:
       EXCHANGE_AUTOMATION_TOKEN: ${EXCHANGE_AUTOMATION_TOKEN:-}
       EXCHANGE_AUTH_MODE: ${EXCHANGE_AUTH_MODE:-certificate}

@@ -186,6 +186,7 @@ start the normal stack:
 mkdir -p secrets
 chmod 700 secrets
 chmod 600 secrets/exchange.pfx
+# The Compose service reads the mode-600 file as its isolated root worker user.
 docker compose up -d --build exchange-worker
 ```
 
