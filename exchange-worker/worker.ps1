@@ -64,6 +64,19 @@ while ($listener.IsListening) {
                     Set-Mailbox -Identity $body.user_id -ForwardingSmtpAddress $forwardTo -DeliverToMailboxAndForward ([bool]$body.keep_copy) -Confirm:$false
                     Send-Json $context 200 @{ status = 'completed'; operation = 'mail-forwarding'; execution = 'powershell' }
                 }
+                '/v1/user-actions/shared-mailboxes' {
+                    $mailboxes = @(Get-Mailbox -RecipientTypeDetails SharedMailbox -ResultSize Unlimited | Select-Object @{Name='id';Expression={$_.Guid.ToString()}}, @{Name='display_name';Expression={$_.DisplayName}}, @{Name='primary_smtp_address';Expression={$_.PrimarySmtpAddress.ToString()}}, Alias, RecipientTypeDetails)
+                    Send-Json $context 200 @{ status = 'completed'; operation = 'shared-mailboxes'; mailboxes = $mailboxes; execution = 'powershell' }
+                }
+                '/v1/user-actions/convert-mailbox' {
+                    $mailbox = Get-Mailbox -Identity $body.user_id -ErrorAction Stop
+                    if ($mailbox.RecipientTypeDetails -eq 'SharedMailbox') {
+                        Send-Json $context 200 @{ status = 'completed'; operation = 'convert-mailbox'; mailbox = $body.user_id; already_shared = $true; execution = 'powershell' }
+                    } else {
+                        Set-Mailbox -Identity $body.user_id -Type Shared -Confirm:$false
+                        Send-Json $context 200 @{ status = 'completed'; operation = 'convert-mailbox'; mailbox = $body.user_id; already_shared = $false; execution = 'powershell' }
+                    }
+                }
                 '/v1/user-actions/shared-mailbox-permissions' {
                     foreach ($permission in @($body.permissions)) {
                         if (-not $permission.mailbox -or $permission.mailbox -eq 'selected') { throw 'A real shared mailbox identity is required' }

@@ -43,7 +43,13 @@ class ExchangeAutomationClient:
         return self._call("global-address-list", tenant_id, user_id, {"hidden": hidden}, organization)
 
     def set_forwarding(self, tenant_id: str, user_id: str, recipient: str | None, keep_copy: bool, organization: str | None = None) -> dict:
-        return self._call("mail-forwarding", tenant_id, user_id, {"recipient": recipient}, organization)
+        return self._call("mail-forwarding", tenant_id, user_id, {"recipient": recipient, "keep_copy": keep_copy}, organization)
+
+    def list_shared_mailboxes(self, tenant_id: str, user_id: str, organization: str) -> dict:
+        return self._call("shared-mailboxes", tenant_id, user_id, {}, organization)
 
     def set_shared_mailbox_permissions(self, tenant_id: str, user_id: str, permissions: list[dict], organization: str | None = None) -> dict:
         return self._call("shared-mailbox-permissions", tenant_id, user_id, {"permissions": permissions}, organization)
+
+    def convert_mailbox(self, tenant_id: str, user_id: str, organization: str) -> dict:
+        return self._call("convert-mailbox", tenant_id, user_id, {}, organization)

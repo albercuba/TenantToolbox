@@ -226,6 +226,12 @@ the returned error message.
 For Exchange-backed actions such as **Global Address List**, **Manage Email
 Forwarding**, and **Manage Shared Mailboxes**, the final review also identifies
 that the request runs through the certificate-authenticated Exchange worker.
+The drawer loads the current tenant state before editing Global Address List,
+automatic replies, groups, licenses, or shared-mailbox selections. Group and
+license changes submit Microsoft Graph IDs, and shared-mailbox permissions use
+a real mailbox identity returned by Exchange Online. Offboarding executes only
+the selected steps and reports failure without claiming the remaining steps were
+completed.
 
 ## 6. CSP/GDAP testing with a Partner Center integration sandbox
 

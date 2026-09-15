@@ -100,6 +100,9 @@ class GraphClient:
     def licenses(self) -> list[dict]:
         return self.all_pages("subscribedSkus", {"$select": "skuId,skuPartNumber,consumedUnits,prepaidUnits"})
 
+    def tenant_license_ids(self) -> set[str]:
+        return {item["skuId"] for item in self.licenses() if isinstance(item.get("skuId"), str)}
+
     def secure_score(self) -> dict | None:
         scores = self.get("security/secureScores", {"$top": "1"}).get("value", [])
         return scores[0] if scores else None
@@ -159,24 +162,39 @@ class GraphClient:
         self._request("POST", f"groups/{group_id}/members/$ref", {"@odata.id": f"https://graph.microsoft.com/v1.0/directoryObjects/{user_id}"})
 
     def clear_authentication_method(self, user_id: str, method: dict) -> None:
-        method_types = {"#microsoft.graph.microsoftAuthenticatorAuthenticationMethod": "microsoftAuthenticatorMethods", "#microsoft.graph.phoneAuthenticationMethod": "phoneMethods", "#microsoft.graph.fido2AuthenticationMethod": "fido2Methods", "#microsoft.graph.windowsHelloForBusinessAuthenticationMethod": "windowsHelloForBusinessMethods", "#microsoft.graph.emailAuthenticationMethod": "emailMethods", "#microsoft.graph.temporaryAccessPassAuthenticationMethod": "temporaryAccessPassMethods"}
-        collection = method_types.get(method.get("@odata.type"))
-        if not collection or not method.get("id"):
+        method_types: dict[str, str] = {"#microsoft.graph.microsoftAuthenticatorAuthenticationMethod": "microsoftAuthenticatorMethods", "#microsoft.graph.phoneAuthenticationMethod": "phoneMethods", "#microsoft.graph.fido2AuthenticationMethod": "fido2Methods", "#microsoft.graph.windowsHelloForBusinessAuthenticationMethod": "windowsHelloForBusinessMethods", "#microsoft.graph.emailAuthenticationMethod": "emailMethods", "#microsoft.graph.temporaryAccessPassAuthenticationMethod": "temporaryAccessPassMethods"}
+        method_type = str(method.get("@odata.type") or "")
+        method_id = method.get("id")
+        collection = method_types.get(method_type)
+        if not collection or not isinstance(method_id, str) or not method_id:
             raise GraphAPIError("Unsupported or incomplete authentication method")
-        self._request("DELETE", f"users/{user_id}/authentication/{collection}/{method['id']}")
+        self._request("DELETE", f"users/{user_id}/authentication/{collection}/{method_id}")
 
     def create_temporary_access_pass(self, user_id: str, lifetime_minutes: int, start_date_time: str | None = None, usable_once: bool = True) -> dict:
         from datetime import datetime, timezone
         return self._request("POST", f"users/{user_id}/authentication/temporaryAccessPassMethods", {"startDateTime": start_date_time or datetime.now(timezone.utc).isoformat(), "lifetimeInMinutes": lifetime_minutes, "isUsableOnce": usable_once})
 
+    def automatic_replies(self, user_id: str) -> dict:
+        return self.get(f"users/{user_id}/mailboxSettings", {"$select": "automaticRepliesSetting"}).get("automaticRepliesSetting", {})
+
     def update_automatic_replies(self, user_id: str, setting: dict) -> None:
         self._request("PATCH", f"users/{user_id}/mailboxSettings", {"automaticRepliesSetting": setting})
+
+    def groups(self, user_id: str | None = None) -> list[dict]:
+        groups = self.all_pages("groups", {"$select": "id,displayName,description,mail,mailEnabled,securityEnabled,groupTypes"})
+        member_ids: set[str] = set()
+        if user_id:
+            member_ids = {item["id"] for item in self.all_pages(f"users/{user_id}/memberOf/microsoft.graph.group", {"$select": "id"}) if isinstance(item.get("id"), str)}
+        return [{**group, "isMember": group.get("id") in member_ids} for group in groups]
+
+    def user_licenses(self, user_id: str) -> list[dict]:
+        return self.all_pages(f"users/{user_id}/licenseDetails", {"$select": "skuId,skuPartNumber,servicePlans"})
 
     def assign_licenses(self, user_id: str, add_licenses: list[dict], remove_sku_ids: list[str]) -> dict:
         return self._request("POST", f"users/{user_id}/assignLicense", {"addLicenses": add_licenses, "removeLicenses": remove_sku_ids})
 
-    def reset_password(self, user_id: str, password: str) -> None:
-        self._request("PATCH", f"users/{user_id}", {"passwordProfile": {"password": password, "forceChangePasswordNextSignIn": True}})
+    def reset_password(self, user_id: str, password: str, force_change: bool = True) -> None:
+        self._request("PATCH", f"users/{user_id}", {"passwordProfile": {"password": password, "forceChangePasswordNextSignIn": force_change}})
 
     def update_license(self, user_id: str, sku_id: str, assign: bool) -> None:
         payload = {"addLicenses": [{"skuId": sku_id, "disabledPlans": []}], "removeLicenses": []} if assign else {"addLicenses": [], "removeLicenses": [sku_id]}

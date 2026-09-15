@@ -342,6 +342,76 @@ def search_users(query: str = Query(default=""), user: StaffUser = Depends(get_c
     return [{"tenant_id": tenant.id, "tenant_name": tenant.display_name, "user_id": item.graph_id, "display_name": item.display_name, "user_principal_name": item.user_principal_name, "account_enabled": item.account_enabled, "license_types": [friendly_license_name(value) for value in (item.license_types or [])], "department": item.department or "", "groups": item.groups or [], "mfa_settings": item.mfa_settings} for item, tenant in rows]
 
 
+def graph_client_for_user(tenant_id: str, user_id: str, user: StaffUser, db: Session) -> tuple[ClientTenant, GraphClient]:
+    tenant = ensure_tenant_access(tenant_id, user, db)
+    if not tenant.credential:
+        raise HTTPException(status_code=409, detail="Tenant has no delegated credential")
+    return tenant, GraphClient(tenant, tenant.credential)
+
+
+def exchange_tenant(tenant_id: str, user_id: str, user: StaffUser, db: Session) -> ClientTenant:
+    tenant = ensure_tenant_access(tenant_id, user, db)
+    if not tenant.credential:
+        raise HTTPException(status_code=409, detail="Tenant has no delegated credential")
+    if not (tenant.primary_domain or "").lower().endswith(".onmicrosoft.com"):
+        raise HTTPException(status_code=409, detail="Tenant needs a verified .onmicrosoft.com domain; run Sync now before using Exchange actions")
+    return tenant
+
+
+@app.get("/api/users/automatic-replies")
+def automatic_replies(tenant_id: str, user_id: str, user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> dict:
+    _tenant, client = graph_client_for_user(tenant_id, user_id, user, db)
+    try:
+        setting = client.automatic_replies(user_id)
+    except GraphAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"tenant_id": tenant_id, "user_id": user_id, "automatic_replies_setting": setting}
+
+
+@app.get("/api/users/groups")
+def user_groups(tenant_id: str, user_id: str, category: str | None = Query(default=None), query: str = Query(default=""), user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> list[dict]:
+    _tenant, client = graph_client_for_user(tenant_id, user_id, user, db)
+    categories = {"m365": "m365", "m365_groups": "m365", "unified": "m365", "security": "security", "security_groups": "security", "distribution": "distribution", "distribution_groups": "distribution"}
+    requested = categories.get((category or "").lower()) if category else None
+    if category and not requested:
+        raise HTTPException(status_code=400, detail="Unsupported group category")
+    try:
+        groups = client.groups(user_id)
+    except GraphAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    result = []
+    for group in groups:
+        group_types = group.get("groupTypes") or []
+        group_category = "m365" if "Unified" in group_types else "security" if group.get("securityEnabled") and not group.get("mailEnabled") else "distribution" if group.get("mailEnabled") else "security"
+        if requested and group_category != requested:
+            continue
+        haystack = f"{group.get('displayName', '')} {group.get('mail', '')}".lower()
+        if query.strip().lower() not in haystack:
+            continue
+        result.append({"id": group.get("id"), "display_name": group.get("displayName", ""), "description": group.get("description") or "", "mail": group.get("mail"), "category": group_category, "group_types": group_types, "mail_enabled": bool(group.get("mailEnabled")), "security_enabled": bool(group.get("securityEnabled")), "is_member": bool(group.get("isMember"))})
+    return result
+
+
+@app.get("/api/users/licenses")
+def user_licenses(tenant_id: str, user_id: str, user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> dict:
+    _tenant, client = graph_client_for_user(tenant_id, user_id, user, db)
+    try:
+        details = client.user_licenses(user_id)
+        catalog = {item.get("skuId"): item for item in client.licenses()}
+    except GraphAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"tenant_id": tenant_id, "user_id": user_id, "licenses": [{"sku_id": item.get("skuId"), "sku_part_number": item.get("skuPartNumber") or (catalog.get(item.get("skuId")) or {}).get("skuPartNumber"), "display_name": friendly_license_name(item.get("skuPartNumber") or (catalog.get(item.get("skuId")) or {}).get("skuPartNumber") or ""), "service_plans": item.get("servicePlans") or []} for item in details]}
+
+
+@app.get("/api/users/shared-mailboxes")
+def shared_mailboxes(tenant_id: str, user_id: str, user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> dict:
+    tenant = exchange_tenant(tenant_id, user_id, user, db)
+    try:
+        return ExchangeAutomationClient().list_shared_mailboxes(tenant.tenant_id, user_id, tenant.primary_domain or "")
+    except ExchangeAutomationError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @app.get("/api/users/global-address-list")
 def global_address_list_status(tenant_id: str, user_id: str, user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> dict:
     tenant = ensure_tenant_access(tenant_id, user, db)
@@ -350,7 +420,7 @@ def global_address_list_status(tenant_id: str, user_id: str, user: StaffUser = D
     if not (tenant.primary_domain or "").lower().endswith(".onmicrosoft.com"):
         raise HTTPException(status_code=409, detail="Tenant needs a verified .onmicrosoft.com domain; run Sync now before using Exchange actions")
     try:
-        return ExchangeAutomationClient().global_address_list_status(tenant.tenant_id, user_id, tenant.primary_domain)
+        return ExchangeAutomationClient().global_address_list_status(tenant.tenant_id, user_id, tenant.primary_domain or "")
     except ExchangeAutomationError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -360,21 +430,57 @@ def user_action(payload: UserActionRequest, user: StaffUser = Depends(require_pe
     if not payload.confirm:
         raise HTTPException(status_code=400, detail="Set confirm=true to execute this action")
     tenant = ensure_tenant_access(payload.tenant_id, user, db)
-    if not tenant.credential or payload.action not in {"block", "unblock", "reset_password", "assign_license", "remove_license", "revoke_sessions", "register_mfa", "create_tap", "out_of_office", "m365_groups", "security_groups", "distribution_groups", "licenses", "global_address_list", "email_forwarding", "shared_mailboxes"}:
+    if not tenant.credential or payload.action not in {"block", "unblock", "reset_password", "assign_license", "remove_license", "revoke_sessions", "register_mfa", "create_tap", "out_of_office", "m365_groups", "security_groups", "distribution_groups", "licenses", "global_address_list", "email_forwarding", "shared_mailboxes", "convert_mailbox"}:
         raise HTTPException(status_code=409, detail="Unsupported user action or unavailable tenant credential")
     if payload.action == "reset_password" and (not payload.password or len(payload.password) < 12):
         raise HTTPException(status_code=400, detail="A password of at least 12 characters is required")
     if payload.action in {"assign_license", "remove_license"} and not payload.sku_id:
         raise HTTPException(status_code=400, detail="sku_id is required for license actions")
-    exchange_actions = {"global_address_list", "email_forwarding", "shared_mailboxes"}
+    exchange_actions = {"global_address_list", "email_forwarding", "shared_mailboxes", "convert_mailbox"}
     if payload.action in exchange_actions and not (tenant.primary_domain or "").lower().endswith(".onmicrosoft.com"):
         raise HTTPException(status_code=409, detail="Tenant needs a verified .onmicrosoft.com domain; run Sync now before using Exchange actions")
     client = GraphClient(tenant, tenant.credential)
     result: dict = {}
     try:
-        if payload.action == "block": client.set_user_enabled(payload.user_id, False)
+        if payload.action in {"assign_license", "remove_license"}:
+            if payload.sku_id not in client.tenant_license_ids():
+                raise HTTPException(status_code=400, detail="Selected license does not belong to this tenant")
+        if payload.action == "licenses":
+            available_skus = client.tenant_license_ids()
+            requested_skus = {item.get("skuId") for item in payload.action_data.get("add_licenses", []) if isinstance(item, dict)} | set(payload.action_data.get("remove_sku_ids", []))
+            if not requested_skus.issubset(available_skus):
+                raise HTTPException(status_code=400, detail="One or more selected licenses do not belong to this tenant")
+        if payload.action in {"m365_groups", "security_groups", "distribution_groups"}:
+            group_map = {item.get("id"): item for item in client.groups()}
+            category_map = {"m365_groups": "m365", "security_groups": "security", "distribution_groups": "distribution"}
+            selected_ids = set(payload.action_data.get("add_group_ids", [])) | set(payload.action_data.get("remove_group_ids", []))
+            for group_id in selected_ids:
+                group = group_map.get(group_id)
+                if not group:
+                    raise HTTPException(status_code=400, detail="Selected group does not belong to this tenant")
+                group_types = group.get("groupTypes") or []
+                actual_category = "m365" if "Unified" in group_types else "security" if group.get("securityEnabled") and not group.get("mailEnabled") else "distribution" if group.get("mailEnabled") else "security"
+                if actual_category != category_map[payload.action]:
+                    raise HTTPException(status_code=400, detail="Selected group is not in the requested category")
+        if payload.action == "shared_mailboxes":
+            permissions = payload.action_data.get("permissions", [])
+            if not permissions:
+                raise HTTPException(status_code=400, detail="At least one shared mailbox permission is required")
+            exchange_tenant_info = exchange_tenant(payload.tenant_id, payload.user_id, user, db)
+            mailbox_result = ExchangeAutomationClient().list_shared_mailboxes(exchange_tenant_info.tenant_id, payload.user_id, exchange_tenant_info.primary_domain or "")
+            known_mailboxes = {str(value).lower() for mailbox in mailbox_result.get("mailboxes", []) for value in (mailbox.get("id"), mailbox.get("alias"), mailbox.get("primary_smtp_address"), mailbox.get("display_name")) if value}
+            if any(str(item.get("mailbox", "")).lower() not in known_mailboxes for item in permissions if isinstance(item, dict)):
+                raise HTTPException(status_code=400, detail="Selected mailbox does not belong to this tenant")
+        if payload.action == "convert_mailbox":
+            exchange_tenant_info = exchange_tenant(payload.tenant_id, payload.user_id, user, db)
+            result = ExchangeAutomationClient().convert_mailbox(exchange_tenant_info.tenant_id, payload.user_id, exchange_tenant_info.primary_domain or "")
+        elif payload.action == "block":
+            client.set_user_enabled(payload.user_id, False)
+            if payload.action_data.get("revoke_sessions", False): client.revoke_sessions(payload.user_id)
         elif payload.action == "unblock": client.set_user_enabled(payload.user_id, True)
-        elif payload.action == "reset_password": client.reset_password(payload.user_id, payload.password or "")
+        elif payload.action == "reset_password":
+                    client.reset_password(payload.user_id, payload.password or "", bool(payload.action_data.get("force_change", True)))
+                    if payload.action_data.get("revoke_sessions", False): client.revoke_sessions(payload.user_id)
         elif payload.action == "assign_license": client.update_license(payload.user_id, payload.sku_id or "", True)
         elif payload.action == "remove_license": client.update_license(payload.user_id, payload.sku_id or "", False)
         elif payload.action == "register_mfa":
@@ -392,7 +498,7 @@ def user_action(payload: UserActionRequest, user: StaffUser = Depends(require_pe
             result = client.assign_licenses(payload.user_id, payload.action_data.get("add_licenses", []), payload.action_data.get("remove_sku_ids", []))
         elif payload.action == "global_address_list":
             exchange_organization = tenant.primary_domain
-            result = ExchangeAutomationClient().hide_from_global_address_list(tenant.tenant_id, payload.user_id, bool(payload.action_data.get("hidden", True)), exchange_organization)
+            result = ExchangeAutomationClient().hide_from_global_address_list(tenant.tenant_id, payload.user_id, bool(payload.action_data.get("hidden", True)), exchange_organization or "")
         elif payload.action == "email_forwarding":
             result = ExchangeAutomationClient().set_forwarding(tenant.tenant_id, payload.user_id, payload.action_data.get("recipient"), bool(payload.action_data.get("keep_copy", True)), tenant.primary_domain)
         elif payload.action == "shared_mailboxes":
