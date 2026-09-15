@@ -85,6 +85,7 @@ app.include_router(lifecycle_router)
 _oauth_states: dict[str, str] = {}
 _prospect_states: dict[str, str] = {}
 _reconnect_states: dict[str, tuple[str, str]] = {}
+_exchange_action_jobs: dict[str, dict[str, str | bool]] = {}
 
 
 class SignupRequest(BaseModel):
@@ -353,14 +354,8 @@ def user_action(payload: UserActionRequest, user: StaffUser = Depends(require_pe
     if payload.action in {"assign_license", "remove_license"} and not payload.sku_id:
         raise HTTPException(status_code=400, detail="sku_id is required for license actions")
     exchange_actions = {"global_address_list", "email_forwarding", "shared_mailboxes"}
-    exchange_admin_upn: str | None = None
-    if payload.action in exchange_actions:
-        admin_upn = payload.action_data.get("exchange_admin_upn")
-        if not isinstance(admin_upn, str) or "@" not in admin_upn.strip():
-            raise HTTPException(status_code=400, detail="exchange_admin_upn is required for interactive Exchange sign-in")
-        exchange_admin_upn = admin_upn.strip()
-        if not (tenant.primary_domain or "").lower().endswith(".onmicrosoft.com"):
-            raise HTTPException(status_code=409, detail="Tenant needs a verified .onmicrosoft.com domain; run Sync now before using Exchange actions")
+    if payload.action in exchange_actions and not (tenant.primary_domain or "").lower().endswith(".onmicrosoft.com"):
+        raise HTTPException(status_code=409, detail="Tenant needs a verified .onmicrosoft.com domain; run Sync now before using Exchange actions")
     client = GraphClient(tenant, tenant.credential)
     result: dict = {}
     try:
@@ -384,19 +379,43 @@ def user_action(payload: UserActionRequest, user: StaffUser = Depends(require_pe
             result = client.assign_licenses(payload.user_id, payload.action_data.get("add_licenses", []), payload.action_data.get("remove_sku_ids", []))
         elif payload.action == "global_address_list":
             exchange_organization = tenant.primary_domain
-            result = ExchangeAutomationClient().hide_from_global_address_list(tenant.tenant_id, payload.user_id, bool(payload.action_data.get("hidden", True)), exchange_organization, exchange_admin_upn)
+            result = ExchangeAutomationClient().start_global_address_list(tenant.tenant_id, payload.user_id, bool(payload.action_data.get("hidden", True)), exchange_organization)
         elif payload.action == "email_forwarding":
-            result = ExchangeAutomationClient().set_forwarding(tenant.tenant_id, payload.user_id, payload.action_data.get("recipient"), bool(payload.action_data.get("keep_copy", True)), tenant.primary_domain, exchange_admin_upn)
+            result = ExchangeAutomationClient().set_forwarding(tenant.tenant_id, payload.user_id, payload.action_data.get("recipient"), bool(payload.action_data.get("keep_copy", True)), tenant.primary_domain)
         elif payload.action == "shared_mailboxes":
-            result = ExchangeAutomationClient().set_shared_mailbox_permissions(tenant.tenant_id, payload.user_id, payload.action_data.get("permissions", []), tenant.primary_domain, exchange_admin_upn)
+            result = ExchangeAutomationClient().set_shared_mailbox_permissions(tenant.tenant_id, payload.user_id, payload.action_data.get("permissions", []), tenant.primary_domain)
         else: client.revoke_sessions(payload.user_id)
     except (GraphAPIError, ExchangeAutomationError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if payload.action == "global_address_list" and result.get("status") == "awaiting_sign_in":
+        job_id = result.get("job_id")
+        if isinstance(job_id, str):
+            _exchange_action_jobs[job_id] = {"actor_id": user.id, "tenant_id": tenant.id, "user_id": payload.user_id, "action": payload.action, "hidden": bool(payload.action_data.get("hidden", True))}
+        return result
     write_audit(db, user, f"user.{payload.action}", tenant.id, {"user_id": payload.user_id, "action_data": payload.action_data})
     db.commit()
     response = {"status": "completed", "action": payload.action}
     if payload.action == "create_tap": response["temporary_access_pass"] = result.get("temporaryAccessPass", "")
     return response
+
+
+@app.get("/api/users/action-jobs/{job_id}")
+def user_action_job(job_id: str, user: StaffUser = Depends(require_permission("operate")), db: Session = Depends(get_db)) -> dict:
+    job = _exchange_action_jobs.get(job_id)
+    if not job or job.get("actor_id") != user.id:
+        raise HTTPException(status_code=404, detail="Action job not found")
+    tenant = ensure_tenant_access(str(job["tenant_id"]), user, db)
+    try:
+        result = ExchangeAutomationClient().exchange_job_status(job_id)
+    except ExchangeAutomationError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if result.get("status") == "completed":
+        write_audit(db, user, "user.global_address_list", tenant.id, {"user_id": job["user_id"], "hidden": job["hidden"], "execution": "powershell"})
+        db.commit()
+        _exchange_action_jobs.pop(job_id, None)
+    elif result.get("status") == "failed":
+        _exchange_action_jobs.pop(job_id, None)
+    return result
 
 
 @app.post("/api/users/offboard")
