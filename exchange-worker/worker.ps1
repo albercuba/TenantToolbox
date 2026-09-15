@@ -25,9 +25,11 @@ function Connect-Exchange($tenantId, $organization, $adminUpn) {
     if ($authMode -eq 'interactive') {
         if (-not $adminUpn) { throw 'exchange_admin_upn is required for interactive Exchange sign-in' }
         if (-not $organization -or $organization -notmatch '\.onmicrosoft\.com$') { throw 'A verified customer .onmicrosoft.com organization domain is required' }
-        # This opens the supported interactive delegated sign-in flow. The
-        # caller must be an Exchange administrator in the customer tenant.
-        Connect-ExchangeOnline -UserPrincipalName $adminUpn -Organization $organization -ShowBanner:$false
+        # Device authentication is required because this worker runs in a
+        # headless container without a browser. The URL and one-time code are
+        # written to the worker log for the operator to open in a browser.
+        Write-Output "Exchange administrator sign-in required for $organization using account $adminUpn. Open https://microsoft.com/devicelogin and enter the code shown below."
+        Connect-ExchangeOnline -UserPrincipalName $adminUpn -Device -Organization $organization -ShowBanner:$false
         return
     }
     if (-not $appId -or -not $certificatePath -or -not $certificatePassword) { throw 'Exchange certificate worker credentials are not configured' }

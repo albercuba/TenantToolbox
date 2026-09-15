@@ -24,12 +24,16 @@ class ExchangeAutomationClient:
                 f"{settings.exchange_automation_url.rstrip('/')}/v1/user-actions/{operation}",
                 headers={"Authorization": f"Bearer {settings.exchange_automation_token}", "Content-Type": "application/json"},
                 json={"tenant_id": tenant_id, "user_id": user_id, "organization": organization or tenant_id, **data},
-                timeout=60,
+                timeout=900,
             )
         except httpx.HTTPError as exc:
             raise ExchangeAutomationError("Exchange automation worker is unreachable") from exc
         if response.is_error:
-            raise ExchangeAutomationError(f"Exchange automation failed for {operation}: {response.status_code}")
+            try:
+                detail = response.json().get("detail")
+            except ValueError:
+                detail = None
+            raise ExchangeAutomationError(f"Exchange automation failed for {operation}: {detail or response.status_code}")
         return response.json() if response.content else {}
 
     def hide_from_global_address_list(self, tenant_id: str, user_id: str, hidden: bool, organization: str | None = None, admin_upn: str | None = None) -> dict:

@@ -149,7 +149,14 @@ to the private worker. No customer tenant IDs need to be added to `.env` and no
 worker restart is required when customers are added or removed.
 
 The Exchange administrator must have the required Exchange RBAC role and
-complete the Microsoft sign-in when an Exchange action runs. The worker also
+complete the Microsoft device-code sign-in when an Exchange action runs. In a
+Docker deployment, watch the worker output for the one-time code:
+
+```sh
+docker compose logs -f exchange-worker
+```
+
+Open `https://microsoft.com/devicelogin` in a browser and enter that code. The worker also
 supports optional unattended certificate mode for deployments that explicitly
 need background automation. Certificate mode retains a static environment
 allowlist because it is not driven by an interactive MSP session:
