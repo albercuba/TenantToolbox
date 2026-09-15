@@ -35,8 +35,8 @@ class ExchangeAutomationClient:
     def hide_from_global_address_list(self, tenant_id: str, user_id: str, hidden: bool, organization: str | None = None, admin_upn: str | None = None) -> dict:
         return self._call("global-address-list", tenant_id, user_id, {"hidden": hidden, "exchange_admin_upn": admin_upn}, organization)
 
-    def set_forwarding(self, tenant_id: str, user_id: str, recipient: str | None, keep_copy: bool) -> dict:
-        return self._call("mail-forwarding", tenant_id, user_id, {"recipient": recipient, "keep_copy": keep_copy})
+    def set_forwarding(self, tenant_id: str, user_id: str, recipient: str | None, keep_copy: bool, organization: str | None = None, admin_upn: str | None = None) -> dict:
+        return self._call("mail-forwarding", tenant_id, user_id, {"recipient": recipient, "keep_copy": keep_copy, "exchange_admin_upn": admin_upn}, organization)
 
-    def set_shared_mailbox_permissions(self, tenant_id: str, user_id: str, permissions: list[dict]) -> dict:
-        return self._call("shared-mailbox-permissions", tenant_id, user_id, {"permissions": permissions})
+    def set_shared_mailbox_permissions(self, tenant_id: str, user_id: str, permissions: list[dict], organization: str | None = None, admin_upn: str | None = None) -> dict:
+        return self._call("shared-mailbox-permissions", tenant_id, user_id, {"permissions": permissions, "exchange_admin_upn": admin_upn}, organization)

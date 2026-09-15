@@ -352,11 +352,17 @@ def user_action(payload: UserActionRequest, user: StaffUser = Depends(require_pe
         raise HTTPException(status_code=400, detail="A password of at least 12 characters is required")
     if payload.action in {"assign_license", "remove_license"} and not payload.sku_id:
         raise HTTPException(status_code=400, detail="sku_id is required for license actions")
-    if payload.action == "global_address_list":
+    exchange_actions = {"global_address_list", "email_forwarding", "shared_mailboxes"}
+    exchange_admin_upn: str | None = None
+    if payload.action in exchange_actions:
         admin_upn = payload.action_data.get("exchange_admin_upn")
         if not isinstance(admin_upn, str) or "@" not in admin_upn.strip():
             raise HTTPException(status_code=400, detail="exchange_admin_upn is required for interactive Exchange sign-in")
+        exchange_admin_upn = admin_upn.strip()
+        if not (tenant.primary_domain or "").lower().endswith(".onmicrosoft.com"):
+            raise HTTPException(status_code=409, detail="Tenant needs a verified .onmicrosoft.com domain; run Sync now before using Exchange actions")
     client = GraphClient(tenant, tenant.credential)
+    result: dict = {}
     try:
         if payload.action == "block": client.set_user_enabled(payload.user_id, False)
         elif payload.action == "unblock": client.set_user_enabled(payload.user_id, True)
@@ -377,14 +383,12 @@ def user_action(payload: UserActionRequest, user: StaffUser = Depends(require_pe
         elif payload.action == "licenses":
             result = client.assign_licenses(payload.user_id, payload.action_data.get("add_licenses", []), payload.action_data.get("remove_sku_ids", []))
         elif payload.action == "global_address_list":
-            exchange_organization = tenant.primary_domain if (tenant.primary_domain or "").lower().endswith(".onmicrosoft.com") else None
-            if not exchange_organization:
-                raise ExchangeAutomationError("Tenant needs a verified .onmicrosoft.com domain; run Sync now before using Exchange actions")
-            result = ExchangeAutomationClient().hide_from_global_address_list(tenant.tenant_id, payload.user_id, bool(payload.action_data.get("hidden", True)), exchange_organization, payload.action_data.get("exchange_admin_upn").strip())
+            exchange_organization = tenant.primary_domain
+            result = ExchangeAutomationClient().hide_from_global_address_list(tenant.tenant_id, payload.user_id, bool(payload.action_data.get("hidden", True)), exchange_organization, exchange_admin_upn)
         elif payload.action == "email_forwarding":
-            result = ExchangeAutomationClient().set_forwarding(tenant.tenant_id, payload.user_id, payload.action_data.get("recipient"), bool(payload.action_data.get("keep_copy", True)))
+            result = ExchangeAutomationClient().set_forwarding(tenant.tenant_id, payload.user_id, payload.action_data.get("recipient"), bool(payload.action_data.get("keep_copy", True)), tenant.primary_domain, exchange_admin_upn)
         elif payload.action == "shared_mailboxes":
-            result = ExchangeAutomationClient().set_shared_mailbox_permissions(tenant.tenant_id, payload.user_id, payload.action_data.get("permissions", []))
+            result = ExchangeAutomationClient().set_shared_mailbox_permissions(tenant.tenant_id, payload.user_id, payload.action_data.get("permissions", []), tenant.primary_domain, exchange_admin_upn)
         else: client.revoke_sessions(payload.user_id)
     except (GraphAPIError, ExchangeAutomationError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
